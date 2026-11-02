@@ -24,7 +24,7 @@ jobs:
 
       - name: Build installer
         run: |
-          npm run sync
+          node build-app.js
           npx electron-builder --win nsis --x64 --config.win.signAndEditExecutable=true
 
       - uses: actions/upload-artifact@v4

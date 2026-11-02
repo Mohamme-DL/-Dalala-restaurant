@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; img-src 'self' data:">
+<title>التفعيل — Activation</title>
+<link rel="stylesheet" href="web/css/fonts.css" onerror="this.remove()">
+<style>
+  :root { --bg: #0f172a; --card: #111c33; --line: #24324f; --text: #e2e8f0; --muted: #94a3b8; --ok: #10b981; --bad: #f87171; --wa: #25d366; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; font-family: 'Cairo', 'Segoe UI', Tahoma, sans-serif; background: radial-gradient(circle at 20% 0%, color-mix(in srgb, var(--accent) 35%, transparent), transparent 55%), var(--bg); color: var(--text); display: grid; place-items: center; padding: 22px; }
+  .box { width: 100%; max-width: 660px; background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 26px 28px; box-shadow: 0 30px 60px rgba(0, 0, 0, .35); }
+  header { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+  header img { width: 56px; height: 56px; border-radius: 16px; }
+  h1 { font-size: 21px; margin: 0; } h1 small { display: block; font-size: 13px; color: var(--muted); font-weight: 600; }
+  p { color: var(--muted); margin: 0 0 14px; line-height: 1.7; font-size: 14px; }
+  .lbl { font-size: 13px; color: var(--muted); font-weight: 700; margin: 14px 0 6px; display: flex; justify-content: space-between; }
+  .code { display: flex; gap: 8px; align-items: center; }
+  .code b { flex: 1; direction: ltr; text-align: center; font-family: Consolas, 'Courier New', monospace; font-size: 26px; letter-spacing: 3px; padding: 12px; border-radius: 14px; background: #0b1324; border: 1px dashed var(--line); user-select: all; }
+  button { font: inherit; font-weight: 700; border: 0; border-radius: 12px; padding: 11px 16px; cursor: pointer; color: #fff; background: #334155; display: inline-flex; align-items: center; gap: 8px; }
+  button:hover { filter: brightness(1.1); }
+  .wa { background: var(--wa); } .primary { background: var(--accent); width: 100%; justify-content: center; padding: 13px; font-size: 16px; margin-top: 12px; }
+  textarea { width: 100%; min-height: 104px; resize: vertical; direction: ltr; font-family: Consolas, 'Courier New', monospace; font-size: 13px; border-radius: 14px; border: 1px solid var(--line); background: #0b1324; color: var(--text); padding: 12px; outline: none; }
+  textarea:focus { border-color: var(--accent); }
+  .msg { margin-top: 12px; padding: 10px 14px; border-radius: 12px; font-weight: 700; font-size: 14px; display: none; }
+  .msg.err { display: block; background: rgba(248, 113, 113, .12); color: var(--bad); } .msg.ok { display: block; background: rgba(16, 185, 129, .14); color: var(--ok); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  footer { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12.5px; display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .en { direction: ltr; display: inline-block; }
+</style>
+</head>
+<body>
+<div class="box">
+  <header><img src="web/assets/icon.png" alt=""><h1 id="pname">—<small id="pname-en"></small></h1></header>
+  <p id="intro">هذه النسخة تحتاج إلى تفعيل على هذا الجهاز. أرسل <b>رمز الجهاز</b> للمورّد لتحصل على <b>مفتاح التفعيل</b>، ثم الصقه بالأسفل.<br><span class="en">This copy must be activated on this computer. Send the device code to your vendor to receive an activation key, then paste it below.</span></p>
+  <div class="lbl"><span>رمز الجهاز — Device code</span></div>
+  <div class="code"><b id="dev">····-····-····-····</b><button id="copy" title="Copy">نسخ</button></div>
+  <div class="row"><button class="wa" id="wa" hidden>إرسال الرمز للمورّد عبر واتساب</button></div>
+  <div class="lbl"><span>مفتاح التفعيل — Activation key</span></div>
+  <textarea id="key" placeholder="DLL1.xxxxxxxx.yyyyyyyy" spellcheck="false"></textarea>
+  <button class="primary" id="go">تفعيل — Activate</button>
+  <div class="msg" id="msg"></div>
+  <footer><span id="vendor"></span><span class="en">Dalala licensing</span></footer>
+</div>
+<script>
+  const REASONS = {
+    format: ['صيغة المفتاح غير صحيحة — تأكد من نسخه كاملاً.', 'Invalid key format — make sure you copied the whole key.'],
+    signature: ['المفتاح غير صالح أو تم التلاعب به.', 'This key is not valid.'],
+    product: ['هذا المفتاح لمنظومة أخرى وليس لهذه المنظومة.', 'This key is for a different product.'],
+    device: ['هذا المفتاح لجهاز آخر. أرسل رمز هذا الجهاز للحصول على مفتاح خاص به.', 'This key belongs to another computer.'],
+    expired: ['انتهت صلاحية الترخيص. تواصل مع المورّد للتجديد.', 'The license has expired. Contact your vendor to renew.'],
+    clock: ['تم اكتشاف تغيير في تاريخ الجهاز. صحّح التاريخ والوقت ثم أعد التشغيل.', 'The computer clock was turned back. Fix the date and time.'],
+  };
+  const $ = s => document.querySelector(s);
+  const show = (cls, text) => { const m = $('#msg'); m.className = 'msg ' + cls; m.innerHTML = text; };
+  (async () => {
+    const info = await window.lic.info(); const P = info.product;
+    document.documentElement.style.setProperty('--accent', P.accent || '#4f46e5');
+    $('#pname').firstChild.nodeValue = P.nameAr; $('#pname-en').textContent = P.nameEn; $('#dev').textContent = info.deviceId;
+    document.title = `${P.nameAr} — التفعيل`;
+    $('#vendor').textContent = [P.vendorName, P.vendorPhone].filter(Boolean).join(' · ');
+    if (info.reason && info.reason !== 'none' && REASONS[info.reason]) show('err', REASONS[info.reason].join('<br>'));
+    if (P.vendorPhone) {
+      const btn = $('#wa'); btn.hidden = false;
+      btn.onclick = () => window.lic.open(`https://wa.me/${String(P.vendorPhone).replace(/\D/g, '')}?text=${encodeURIComponent(`طلب تفعيل: ${P.nameAr}\nرمز الجهاز: ${info.deviceId}\nاسم المنشأة: `)}`);
+    }
+    $('#copy').onclick = async () => { await window.lic.copy(info.deviceId); $('#copy').textContent = '✓'; setTimeout(() => { $('#copy').textContent = 'نسخ'; }, 1500); };
+    $('#go').onclick = async () => {
+      const key = $('#key').value.trim(); if (!key) { $('#key').focus(); return; }
+      $('#go').disabled = true; const r = await window.lic.activate(key); $('#go').disabled = false;
+      if (r.ok) show('ok', `تم التفعيل بنجاح ✓ — مرخّص لـ: ${r.payload.c || ''}${r.payload.e ? ` (حتى ${r.payload.e})` : ''}<br><span class="en">Activated — opening…</span>`);
+      else show('err', (REASONS[r.reason] || REASONS.signature).join('<br>'));
+    };
+  })();
+</script>
+</body>
+</html>

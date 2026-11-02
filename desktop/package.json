@@ -7,16 +7,18 @@
   "license": "UNLICENSED",
   "main": "main.js",
   "scripts": {
-    "sync": "node sync-web.js",
+    "sync": "node build-app.js --dev",
     "start": "npm run sync && electron .",
-    "pack": "npm run sync && electron-builder --win dir --x64 && node set-exe-meta.mjs",
+    "build-app": "node build-app.js",
+    "pack": "node build-app.js && electron-builder --win dir --x64 && node set-exe-meta.mjs",
     "dist": "npm run pack && node make-installer.js",
-    "dist:builder": "npm run sync && electron-builder --win nsis --x64"
+    "dist:builder": "node build-app.js && electron-builder --win nsis --x64"
   },
   "devDependencies": {
     "electron": "33.2.1",
     "electron-builder": "25.1.8",
-    "resedit": "^2.0.3"
+    "resedit": "^2.0.3",
+    "javascript-obfuscator": "4.2.2"
   },
   "build": {
     "appId": "ly.dalala.restaurant",
@@ -27,8 +29,7 @@
       "buildResources": "build"
     },
     "files": [
-      "main.js",
-      "web/**/*",
+      "app/**/*",
       "package.json"
     ],
     "win": {
@@ -61,6 +62,14 @@
       "language": "1025",
       "multiLanguageInstaller": true,
       "deleteAppDataOnUninstall": false
+    },
+    "extraMetadata": {
+      "main": "app/main.js"
+    },
+    "electronFuses": {
+      "runAsNode": false,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false
     }
   }
 }
