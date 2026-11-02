@@ -2,6 +2,10 @@
 const { app, BrowserWindow, Menu, shell, dialog, ipcMain, clipboard } = require('electron');
 const path = require('path');
 const lic = require('./license');
+const fs = require('fs');
+const os = require('os');
+const http = require('http');
+const net = require('./netserver');
 const PRODUCT = lic.PRODUCT;
 
 app.setAppUserModelId('ly.dalala.' + PRODUCT.id);
@@ -9,6 +13,40 @@ if (!app.requestSingleInstanceLock()) app.quit();
 Menu.setApplicationMenu(null);
 
 let win = null, actWin = null, state = { ok: false, reason: 'none' };
+
+/* ---------- several computers, one database (LAN) ----------
+   network.json: { mode: 'local' | 'host' | 'client', port, key, host }  */
+const NET_DEFAULT = { mode: 'local', port: 47630, key: '', host: '' };
+const netFile = () => path.join(app.getPath('userData'), 'network.json');
+function netConfig() { try { return { ...NET_DEFAULT, ...JSON.parse(fs.readFileSync(netFile(), 'utf8')) }; } catch (e) { return { ...NET_DEFAULT }; } }
+let NET = null, server = null, serverError = '';
+function lanAddresses() { return Object.values(os.networkInterfaces()).flat().filter(n => n && n.family === 'IPv4' && !n.internal).map(n => n.address); }
+async function startServer() {
+  if (NET.mode !== 'host') return;
+  if (!NET.key) { NET.key = net.newKey(); fs.writeFileSync(netFile(), JSON.stringify(NET, null, 1)); }
+  let rules = {}; try { rules = require('./netrules'); } catch (e) { /* no product rules */ }
+  server = net.createServer({ rules, port: NET.port, key: NET.key, dir: path.join(app.getPath('userData'), 'shared'), onEvent: (k, m) => { if (k === 'error') serverError = m; } });
+  try { await server.listen(); } catch (e) { serverError = e.message; dialog.showErrorBox(PRODUCT.nameAr, `تعذر تشغيل خادم الشبكة على المنفذ ${NET.port}.\n${e.message}`); server = null; }
+}
+function ping(host, port, key) {
+  return new Promise(resolve => {
+    const req = http.get({ host, port, path: '/api/ping', timeout: 4000, headers: { 'x-dalala-key': key } }, res => { let b = ''; res.on('data', c => { b += c; }); res.on('end', () => { try { resolve({ ok: true, ...JSON.parse(b) }); } catch (e) { resolve({ ok: false, error: 'bad reply' }); } }); });
+    req.on('timeout', () => { req.destroy(); resolve({ ok: false, error: 'timeout' }); }); req.on('error', e => resolve({ ok: false, error: e.code || e.message }));
+  });
+}
+ipcMain.on('net:config', e => {
+  const c = NET || netConfig();
+  e.returnValue = { mode: c.mode, key: c.key, port: c.port, host: c.host, name: os.hostname(),
+    url: c.mode === 'host' ? `http://127.0.0.1:${c.port}` : c.mode === 'client' ? `http://${c.host}:${c.port}` : '' };
+});
+ipcMain.handle('net:info', () => ({ ...NET, ips: lanAddresses(), hostname: os.hostname(), server: server ? server.status() : null, serverError }));
+ipcMain.handle('net:test', (_e, { host, port, key }) => ping(String(host || '').trim(), +port || NET_DEFAULT.port, String(key || '').trim().toUpperCase()));
+ipcMain.handle('net:set', (_e, cfg) => {
+  const next = { ...NET_DEFAULT, ...NET, mode: ['local', 'host', 'client'].includes(cfg.mode) ? cfg.mode : 'local', port: Math.min(65000, Math.max(1024, +cfg.port || NET_DEFAULT.port)), host: String(cfg.host || '').trim(), key: cfg.mode === 'client' ? String(cfg.key || '').trim().toUpperCase() : (NET.key || '') };
+  fs.writeFileSync(netFile(), JSON.stringify(next, null, 1));
+  setTimeout(() => { app.relaunch(); app.exit(0); }, 300);
+  return true;
+});
 const ICON = path.join(__dirname, 'web', 'assets', 'icon.png');
 
 function harden(wc, allowNav) {
@@ -67,8 +105,9 @@ ipcMain.on('lic:status', e => {
 });
 
 app.on('second-instance', () => { const w = win || actWin; if (w) { if (w.isMinimized()) w.restore(); w.focus(); } });
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  NET = netConfig(); await startServer();
   state = lic.check(app.getPath('userData'));
   if (state.ok) createMain(); else createActivation();
 });
-app.on('window-all-closed', () => app.quit());
+app.on('window-all-closed', () => { if (server) server.close(); app.quit(); });

@@ -28,7 +28,8 @@ const obf = (code, target) => JO.obfuscate(code, { ...base, target }).getObfusca
 const out = path.join(__dirname, 'app');
 fs.rmSync(out, { recursive: true, force: true }); fs.mkdirSync(out);
 copyWeb(path.join(out, 'web'));
-for (const f of ['main.js', 'license.js', 'license-key.js', 'preload-app.js', 'preload-activation.js', 'activation.html', 'product.json']) {
+for (const f of ['main.js', 'license.js', 'netserver.js', 'netrules.js', 'license-key.js', 'preload-app.js', 'preload-activation.js', 'activation.html', 'product.json']) {
+  if (!fs.existsSync(path.join(__dirname, f))) continue; // netrules.js is optional
   const src = fs.readFileSync(path.join(__dirname, f), 'utf8');
   fs.writeFileSync(path.join(out, f), f.endsWith('.js') ? obf(src, 'node') : src);
 }
