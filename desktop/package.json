@@ -1,0 +1,66 @@
+{
+  "name": "dalala-restaurant",
+  "productName": "Dalala Restaurant",
+  "version": "1.0.0",
+  "description": "منظومة دلالة للمطاعم والمقاهي — Dalala Restaurant & Cafe",
+  "author": "Dalala",
+  "license": "UNLICENSED",
+  "main": "main.js",
+  "scripts": {
+    "sync": "node sync-web.js",
+    "start": "npm run sync && electron .",
+    "pack": "npm run sync && electron-builder --win dir --x64 && node set-exe-meta.mjs",
+    "dist": "npm run pack && node make-installer.js",
+    "dist:builder": "npm run sync && electron-builder --win nsis --x64"
+  },
+  "devDependencies": {
+    "electron": "33.2.1",
+    "electron-builder": "25.1.8",
+    "resedit": "^2.0.3"
+  },
+  "build": {
+    "appId": "ly.dalala.restaurant",
+    "productName": "Dalala Restaurant",
+    "copyright": "© Dalala",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "web/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "Dalala-Restaurant-Setup-${version}.${ext}",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "منظومة دلالة للمطاعم والمقاهي",
+      "uninstallDisplayName": "منظومة دلالة للمطاعم والمقاهي - Dalala Restaurant",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerLanguages": [
+        "ar_SA",
+        "en_US"
+      ],
+      "language": "1025",
+      "multiLanguageInstaller": true,
+      "deleteAppDataOnUninstall": false
+    }
+  }
+}
