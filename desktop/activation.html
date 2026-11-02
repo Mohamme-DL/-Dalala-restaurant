@@ -62,7 +62,7 @@
     if (info.reason && info.reason !== 'none' && REASONS[info.reason]) show('err', REASONS[info.reason].join('<br>'));
     if (P.vendorPhone) {
       const btn = $('#wa'); btn.hidden = false;
-      btn.onclick = () => window.lic.open(`https://wa.me/${String(P.vendorPhone).replace(/\D/g, '')}?text=${encodeURIComponent(`طلب تفعيل: ${P.nameAr}\nرمز الجهاز: ${info.deviceId}\nاسم المنشأة: `)}`);
+      btn.onclick = () => window.lic.open(`https://wa.me/${String(P.vendorPhone).replace(/\D/g, '').replace(/^00/, '').replace(/^0(?=9\d{8}$)/, '218')}?text=${encodeURIComponent(`طلب تفعيل: ${P.nameAr}\nرمز الجهاز: ${info.deviceId}\nاسم المنشأة: `)}`);
     }
     $('#copy').onclick = async () => { await window.lic.copy(info.deviceId); $('#copy').textContent = '✓'; setTimeout(() => { $('#copy').textContent = 'نسخ'; }, 1500); };
     $('#go').onclick = async () => {
