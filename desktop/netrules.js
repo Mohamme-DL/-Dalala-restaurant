@@ -41,13 +41,14 @@ function put(col, rec, ctx) {
   }
 }
 
+// returns the corrected settings only when a counter had to be kept (otherwise nothing)
 function obj(name, val, cur) {
-  if (name !== 'settings' || !val || !cur) return val;
-  const out = { ...val };
-  if (+cur.nextInvoice > +out.nextInvoice) out.nextInvoice = cur.nextInvoice;
+  if (name !== 'settings' || !val || !cur) return null;
+  let changed = false; const out = { ...val };
+  if (+cur.nextInvoice > +out.nextInvoice) { out.nextInvoice = cur.nextInvoice; changed = true; }
   const a = cur.dailyNo || {}, b = out.dailyNo || {};
-  if (a.day && (!b.day || a.day > b.day || (a.day === b.day && +a.n > +b.n))) out.dailyNo = { ...a };
-  return out;
+  if (a.day && (!b.day || a.day > b.day || (a.day === b.day && +a.n > +b.n))) { out.dailyNo = { ...a }; changed = true; }
+  return changed ? out : null;
 }
 
 module.exports = { put, obj };

@@ -85,7 +85,11 @@ const INC_FIELDS = { products: ['stock'] }; // counters sent as +/- so simultane
     queueLocal();
     const mine = pendingIds(); let n = 0; const d = Store.data;
     for (const e of entries) for (const op of e.ops) {
-      if (op.obj) { if (op.value && typeof op.value === 'object') { d[op.obj] = op.value; n++; } continue; }
+      if (op.obj) {
+        if (op.value && typeof op.value === 'object') { d[op.obj] = op.value; n++; }
+        else if (op.patch || op.unset) { const o = d[op.obj] = { ...(d[op.obj] || {}), ...(op.patch || {}) }; (op.unset || []).forEach(k => delete o[k]); n++; }
+        continue;
+      }
       const arr = Array.isArray(d[op.col]) ? d[op.col] : (d[op.col] = []);
       if (op.del && op.del.length) { const ds = new Set(op.del); d[op.col] = arr.filter(r => !ds.has(r.id)); }
       const tgt = d[op.col]; const idx = new Map(tgt.map((r, i) => [r.id, i]));

@@ -49,16 +49,21 @@ function createServer({ port, key, dir, onEvent = () => {}, rules = {} }) {
   }
   function apply(ops, clientId) {
     if (!state.data) state.data = {};
-    const changes = []; const touched = new Set();
+    const changes = []; const touched = new Set(); const patched = new Map(); // obj -> { patch, unset }
     const ctx = { data: state.data, mem, touch: name => touched.add(name) };
     const r6 = n => Math.round(n * 1e6) / 1e6;
     for (const op of ops || []) {
       if (op.obj) {
         if (op.obj === 'version' || /^__/.test(op.obj)) continue;
         const cur = state.data[op.obj];
-        let val = op.patch && cur && typeof cur === 'object' ? { ...cur, ...op.patch } : (op.patch || op.value);
-        if (rules.obj) val = rules.obj(op.obj, val, cur, ctx) || val;
-        state.data[op.obj] = val; touched.add(op.obj); continue;
+        const isPatch = !!(op.patch || op.unset);
+        let val = isPatch ? { ...(cur && typeof cur === 'object' ? cur : {}), ...(op.patch || {}) } : op.value;
+        if (isPatch) for (const k of op.unset || []) delete val[k];
+        if (rules.obj) { const r = rules.obj(op.obj, val, cur, ctx); if (r) { val = r; touched.add(op.obj); } }
+        state.data[op.obj] = val;
+        if (isPatch) { const p = patched.get(op.obj) || { patch: {}, unset: [] }; Object.assign(p.patch, op.patch || {}); for (const k of op.unset || []) { delete p.patch[k]; p.unset.push(k); } patched.set(op.obj, p); }
+        else touched.add(op.obj);
+        continue;
       }
       if (!op.col || /^__/.test(op.col)) continue;
       const arr = state.data[op.col] = Array.isArray(state.data[op.col]) ? state.data[op.col] : [];
@@ -80,7 +85,9 @@ function createServer({ port, key, dir, onEvent = () => {}, rules = {} }) {
       }
       if (put.length || del.length) changes.push({ col: op.col, put, del });
     }
+    // whole value when replaced or changed by a rule; otherwise only the changed keys (attendance, marks… stay small)
     for (const name of touched) changes.push({ obj: name, value: state.data[name] });
+    for (const [name, p] of patched) if (!touched.has(name)) changes.push({ obj: name, patch: p.patch, unset: p.unset });
     if (!changes.length) return { version: state.version, changes: [] };
     state.version++;
     log.push({ v: state.version, clientId, ops: changes }); if (log.length > LOG_MAX) log.splice(0, log.length - LOG_MAX);
