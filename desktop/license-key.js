@@ -1,3 +1,3 @@
 // Vendor PUBLIC key (Ed25519, base64). Safe to publish: it can only CHECK licenses, not create them.
-// TEST KEY — replace with the vendor's real public key from the License Manager before selling.
-module.exports = { publicKey: 'nYhnDmChRn9XsYl48UQzjJ9s1jvpz1QQuSbaKInR2Ew=' };
+// The matching PRIVATE key stays with the vendor (License Manager backup file) and must never be committed.
+module.exports = { publicKey: 'wwJhUpaeemdPH9lXRsJbyQHo9GEsmGxLEOJaGBsrlvY=' };
