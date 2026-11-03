@@ -8,7 +8,7 @@ SetCompressor /SOLID lzma
 !define APPNAME     "Dalala Restaurant"
 !define APPNAME_AR  "منظومة دلالة للمطاعم والمقاهي"
 !ifndef VERSION
-  !define VERSION   "1.1.0"
+  !define VERSION   "1.1.1"
 !endif
 !define EXE         "Dalala Restaurant.exe"
 !define UNINST_KEY  "Software\Microsoft\Windows\CurrentVersion\Uninstall\DalalaRestaurant"

@@ -21,20 +21,48 @@ const LOG_MAX = 5000;
 function createServer({ port, key, dir, onEvent = () => {}, rules = {} }) {
   const file = path.join(dir, 'shared-db.json');
   const backups = path.join(dir, 'backups');
+  const jfile = path.join(dir, 'journal.ndjson'); // every confirmed change is written here first (durability)
   let state = { version: 0, data: null };
   try { state = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { /* new database */ }
   const log = []; // { v, clientId, ops }
+  /* apply already-processed changes (from the journal) to the state */
+  function applyChanges(changes) {
+    if (!state.data) state.data = {};
+    for (const op of changes) {
+      if (op.obj) { if (op.value !== undefined) state.data[op.obj] = op.value; else { const o = state.data[op.obj] = { ...(state.data[op.obj] || {}), ...(op.patch || {}) }; (op.unset || []).forEach(k => delete o[k]); } continue; }
+      let arr = Array.isArray(state.data[op.col]) ? state.data[op.col] : []; if (op.del && op.del.length) { const ds = new Set(op.del); arr = arr.filter(r => !ds.has(r.id)); }
+      const idx = new Map(arr.map((r, i) => [r.id, i])); for (const r of op.put || []) { if (idx.has(r.id)) arr[idx.get(r.id)] = r; else { idx.set(r.id, arr.length); arr.push(r); } }
+      state.data[op.col] = arr;
+    }
+  }
+  // replay changes that were confirmed after the last snapshot (power cut / crash)
+  try {
+    const lines = fs.readFileSync(jfile, 'utf8').split('\n').filter(Boolean); let n = 0;
+    for (const line of lines) { let e; try { e = JSON.parse(line); } catch (x) { break; } if (e.v > state.version) { applyChanges(e.ops); state.version = e.v; log.push({ v: e.v, clientId: e.c || '', ops: e.ops }); n++; } }
+    if (n) onEvent('recovered', n);
+  } catch (e) { /* no journal */ }
   const waiters = new Set();
   const clients = new Map(); // clientId -> { name, lastSeen, ip }
   let saveTimer = null;
   const mem = {}; // scratch memory for product rules (e.g. renumbered orders)
 
+  let jfd = null;
+  function journal(entry) { // append + flush to disk before the change is confirmed to the computer that sent it
+    try { fs.mkdirSync(dir, { recursive: true }); if (jfd === null) jfd = fs.openSync(jfile, 'a'); fs.writeSync(jfd, JSON.stringify(entry) + '\n'); fs.fdatasyncSync(jfd); }
+    catch (e) { onEvent('error', 'journal: ' + e.message); }
+  }
+  function snapshotNow() {
+    clearTimeout(saveTimer); saveTimer = null;
+    fs.mkdirSync(dir, { recursive: true });
+    const tmp = file + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(state)); fs.renameSync(tmp, file);
+    try { if (jfd !== null) { fs.closeSync(jfd); jfd = null; } fs.writeFileSync(jfile, ''); } catch (e) { /* ignore */ } // the snapshot now holds everything
+  }
+  if (log.length) { try { snapshotNow(); } catch (e) { onEvent('error', e.message); } }
   function persist() {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
       try {
-        fs.mkdirSync(dir, { recursive: true });
-        const tmp = file + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(state)); fs.renameSync(tmp, file);
+        snapshotNow();
         const day = new Date().toISOString().slice(0, 10); const bk = path.join(backups, `shared-${day}.json`);
         if (!fs.existsSync(bk)) { fs.mkdirSync(backups, { recursive: true }); fs.copyFileSync(file, bk);
           fs.readdirSync(backups).filter(f => f.startsWith('shared-')).sort().slice(0, -30).forEach(f => fs.rmSync(path.join(backups, f), { force: true })); }
@@ -90,6 +118,7 @@ function createServer({ port, key, dir, onEvent = () => {}, rules = {} }) {
     for (const [name, p] of patched) if (!touched.has(name)) changes.push({ obj: name, patch: p.patch, unset: p.unset });
     if (!changes.length) return { version: state.version, changes: [] };
     state.version++;
+    journal({ v: state.version, c: clientId, ops: changes });
     log.push({ v: state.version, clientId, ops: changes }); if (log.length > LOG_MAX) log.splice(0, log.length - LOG_MAX);
     persist();
     for (const w of waiters) w(); waiters.clear();
@@ -122,7 +151,7 @@ function createServer({ port, key, dir, onEvent = () => {}, rules = {} }) {
         let msg; try { msg = JSON.parse(body || '{}'); } catch (e) { return send(400, { error: 'json' }); }
         if (url.pathname === '/api/init') {
           if (state.data && Object.keys(state.data).length && !msg.force) return send(409, { error: 'exists', version: state.version });
-          state.data = msg.data || {}; state.version++; log.length = 0; persist(); for (const w of waiters) w(); waiters.clear();
+          state.data = msg.data || {}; state.version++; log.length = 0; try { snapshotNow(); } catch (e) { onEvent('error', e.message); } for (const w of waiters) w(); waiters.clear();
           onEvent('init', cid); return send(200, { version: state.version });
         }
         const r = apply(msg.ops, cid); return send(200, r);
@@ -133,7 +162,8 @@ function createServer({ port, key, dir, onEvent = () => {}, rules = {} }) {
   });
   return {
     listen: () => new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '0.0.0.0', () => resolve()); }),
-    close: () => new Promise(r => { for (const w of waiters) w(); server.close(() => r()); }),
+    close: () => new Promise(r => { try { if (saveTimer || jfd !== null) snapshotNow(); } catch (e) { onEvent('error', e.message); } for (const w of waiters) w(); server.close(() => r()); }),
+    flush: () => { try { snapshotNow(); } catch (e) { onEvent('error', e.message); } },
     status: () => ({ version: state.version, hasData: !!state.data, clients: [...clients.entries()].map(([id, c]) => ({ id, ...c, online: Date.now() - c.lastSeen < 60000 })), file }),
   };
 }
