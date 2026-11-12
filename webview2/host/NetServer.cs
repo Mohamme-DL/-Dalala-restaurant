@@ -296,7 +296,7 @@ namespace DalalaRestaurant
         bool KeyOk(string k) { if (k == null || k.Length != key.Length) return false; int d = 0; for (int i = 0; i < k.Length; i++) d |= k[i] ^ key[i]; return d == 0; }
 
         static readonly Dictionary<string, string> Cors = new Dictionary<string, string> {
-            { "Access-Control-Allow-Origin", "*" }, { "Access-Control-Allow-Headers", "content-type, x-dalala-key, x-dalala-client" },
+            { "Access-Control-Allow-Origin", "*" }, { "Access-Control-Allow-Private-Network", "true" }, { "Access-Control-Allow-Headers", "content-type, x-dalala-key, x-dalala-client" },
             { "Access-Control-Allow-Methods", "GET, POST, OPTIONS" }, { "Cache-Control", "no-store" } };
         static void Send(HttpRes res, int code, object obj)
         { res.Send(code, "application/json; charset=utf-8", code == 204 ? new byte[0] : Encoding.UTF8.GetBytes(J.S(obj)), Cors); }
