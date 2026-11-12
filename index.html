@@ -224,7 +224,7 @@ function defaultData() {
       name: 'مطعم وكافيه دلالة', address: 'طرابلس - ليبيا', phone: '09xxxxxxxx', logo: '',
       currency: 'د.ل', decimals: 2, taxRate: 0, serviceRate: 0, serviceDineOnly: true, deliveryFee: 5,
       footer: 'شكراً لزيارتكم .. نتمنى رؤيتكم مجدداً', paper: 80, autoPrint: true, kitchenPrint: true,
-      kitchenCopies: 1, receiptCopies: 1, silentPrint: false, printerName: '', kitchenPrinter: '',
+      kitchenCopies: 1, receiptCopies: 1, silentPrint: true, printerName: '', kitchenPrinter: '',
       mode: 'restaurant', modeChosen: false, quickPopup: false,
       requireShift: true, nextInvoice: 1001, dailyNo: { day: '', n: 0 }, showImages: true, sound: true,
       lowStockAlert: 5, autoBackup: true
@@ -253,7 +253,7 @@ const Store = {
     const d = defaultData();
     for (const k in d) if (this.data[k] === undefined) this.data[k] = d[k];
     for (const k in d.settings) if (this.data.settings[k] === undefined) this.data.settings[k] = d.settings[k];
-    if (!this.data.settings._printUiV2) { this.data.settings.silentPrint = false; this.data.settings._printUiV2 = 1; } // show the print window by default
+    if (this.data.settings._printUiV3 !== 1) { this.data.settings.silentPrint = true; this.data.settings._printUiV3 = 1; } // print directly (no print window) by default
     return this.data;
   },
   save() { clearTimeout(this._t); this._t = setTimeout(() => this.saveNow(), 250); },
@@ -2048,7 +2048,7 @@ VIEWS.settings = (el) => {
         ${inp('receiptCopies', 'نسخ فاتورة الزبون', 'number', 'min="1" max="5"')}${inp('kitchenCopies', 'نسخ تذكرة المطبخ', 'number', 'min="1" max="5"')}</div>
       ${sw('autoPrint', 'طباعة الفاتورة تلقائياً بعد الدفع')}
       ${sw('kitchenPrint', isQuick() ? 'طباعة تذكرة تحضير (للباريستا) مع كل بيع' : 'طباعة تذكرة المطبخ عند الحفظ/الإرسال')}
-      ${PRN() ? `${sw('silentPrint', 'طباعة مباشرة بدون نافذة (صامتة)', 'مطفأ: تظهر نافذة الطباعة دائماً. مفعّل: تُطبع مباشرة على الطابعة المحددة')}
+      ${PRN() ? `${sw('silentPrint', 'طباعة مباشرة بدون نافذة (صامتة)', 'تُطبع مباشرة بلا أي نافذة على الطابعة المحددة أدناه (أو طابعة ويندوز الافتراضية إن لم تُحدَّد)')}
         <div class="grid sm:grid-cols-2 gap-3 mt-3"><div><label class="lbl">طابعة الفواتير</label><select class="inp" id="prnR" onchange="Cfg.v('printerName',this.value)"><option value="">الطابعة الافتراضية</option></select></div>
         <div><label class="lbl">طابعة المطبخ</label><select class="inp" id="prnK" onchange="Cfg.v('kitchenPrinter',this.value)"><option value="">نفس طابعة الفواتير</option></select></div></div>` :
       `<p class="text-[11px] text-slate-500 mt-2">للطباعة المباشرة بدون نافذة وتحديد طابعة للمطبخ استخدم نسخة البرنامج (Dalala.exe).</p>`}
