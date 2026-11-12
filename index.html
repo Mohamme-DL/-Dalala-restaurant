@@ -2069,7 +2069,7 @@ VIEWS.settings = (el) => {
         ${inp('receiptCopies', 'نسخ فاتورة الزبون', 'number', 'min="1" max="5"')}${inp('kitchenCopies', 'نسخ تذكرة المطبخ', 'number', 'min="1" max="5"')}</div>
       ${sw('autoPrint', 'طباعة الفاتورة تلقائياً بعد الدفع')}
       ${sw('kitchenPrint', isQuick() ? 'طباعة تذكرة تحضير (للباريستا) مع كل بيع' : 'طباعة تذكرة المطبخ عند الحفظ/الإرسال')}
-      ${Store.isDesktop ? `${sw('silentPrint', 'طباعة مباشرة بدون نافذة (صامتة)', 'تطبع مباشرة على الطابعة المحددة أدناه')}
+      ${PRN() ? `${sw('silentPrint', 'طباعة مباشرة بدون نافذة (صامتة)', 'تطبع مباشرة على الطابعة المحددة أدناه')}
         <div class="grid sm:grid-cols-2 gap-3 mt-3"><div><label class="lbl">طابعة الفواتير</label><select class="inp" id="prnR" onchange="Cfg.v('printerName',this.value)"><option value="">الطابعة الافتراضية</option></select></div>
         <div><label class="lbl">طابعة المطبخ</label><select class="inp" id="prnK" onchange="Cfg.v('kitchenPrinter',this.value)"><option value="">نفس طابعة الفواتير</option></select></div></div>` :
       `<p class="text-[11px] text-slate-500 mt-2">للطباعة المباشرة بدون نافذة وتحديد طابعة للمطبخ استخدم نسخة البرنامج (Dalala.exe).</p>`}
@@ -2097,10 +2097,12 @@ VIEWS.settings = (el) => {
     </div></div>
     <p class="text-center text-xs text-slate-600 mt-6">منظومة دلالة للمطاعم والكافيهات — الإصدار ${APP_VERSION}</p>`;
   Backup.renderList($('#bkList'));
-  if (Store.isDesktop && window.dalala.printers) window.dalala.printers().then(list => {
+  if (PRN() && PRN().printers) PRN().printers().then(list => { list = (list || []).map(x => typeof x === 'string' ? { name: x } : x);
     ['prnR', 'prnK'].forEach((id, i) => { const sel = $('#' + id); if (!sel) return; const cur = i ? s.kitchenPrinter : s.printerName; list.forEach(p => sel.insertAdjacentHTML('beforeend', `<option ${p.name === cur ? 'selected' : ''}>${esc(p.name)}</option>`)); });
   });
 };
+// طبقة الطباعة: نسخة Electron (window.dalala) أو نسخة WebView2 (window.dalalaPrint)
+const PRN = () => (Store.isDesktop && window.dalala && window.dalala.print) ? window.dalala : (window.dalalaPrint || null);
 const Theme = {
   KEY: 'dalala_ui', DEF: { mode: 'dark', accent: '#0ea5e9' },
   PRESETS: [['#0ea5e9', 'أزرق'], ['#f97316', 'برتقالي'], ['#10b981', 'أخضر'], ['#8b5cf6', 'بنفسجي'], ['#f43f5e', 'وردي'], ['#f59e0b', 'عنبري'], ['#14b8a6', 'تركوازي'], ['#6366f1', 'نيلي']],
@@ -2217,20 +2219,24 @@ const Printer = {
   print(body, { kitchen = false, copies = 1 } = {}) {
     const s = S(), paper = s.paper;
     copies = Math.max(1, Math.min(5, parseInt(copies) || 1));
-    if (Store.isDesktop && s.silentPrint && window.dalala.print) {
-      const html = this.doc(body, paper);
-      window.dalala.print(html, { silent: true, deviceName: (kitchen && s.kitchenPrinter) || s.printerName || '', copies, paper })
-        .then(r => { if (r && r.ok === false) toast('فشلت الطباعة: ' + (r.error || 'تحقق من الطابعة'), 'error'); });
+    const dialog = () => {
+      const html = this.doc(Array.from({ length: copies }, () => `<div class="page">${body}</div>`).join(''), paper);
+      const f = $('#printFrame');
+      f.onload = () => {
+        f.onload = null;
+        try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { console.error(e); }
+        setTimeout(() => { window.focus(); const t = Modal.top(), a = t && $('[autofocus]', t); if (a) a.focus(); else if (document.activeElement) document.activeElement.blur(); }, 50);
+      };
+      f.srcdoc = html;
+    };
+    if (PRN() && s.silentPrint) {
+      const html = this.doc(body, paper), viaHost = PRN() === window.dalalaPrint;
+      PRN().print(html, { silent: true, deviceName: (kitchen && s.kitchenPrinter) || s.printerName || '', copies, paper })
+        .then(r => { if (r && r.ok === false) { toast('فشلت الطباعة المباشرة: ' + (r.error || 'تحقق من الطابعة') + (viaHost ? ' — تُفتح نافذة الطباعة بدلاً منها' : ''), 'error'); if (viaHost) dialog(); } })
+        .catch(() => { if (viaHost) dialog(); });
       return;
     }
-    const html = this.doc(Array.from({ length: copies }, () => `<div class="page">${body}</div>`).join(''), paper);
-    const f = $('#printFrame');
-    f.onload = () => {
-      f.onload = null;
-      try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { console.error(e); }
-      setTimeout(() => { window.focus(); const t = Modal.top(), a = t && $('[autofocus]', t); if (a) a.focus(); else if (document.activeElement) document.activeElement.blur(); }, 50);
-    };
-    f.srcdoc = html;
+    dialog();
   },
 
   header() {

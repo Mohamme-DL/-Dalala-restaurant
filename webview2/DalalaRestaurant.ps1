@@ -172,6 +172,111 @@ function global:Save-Backup([string]$Name, [string]$Json) {
     } catch { Write-AppError 'backup save' ($_ | Out-String); return $false }
 }
 
+
+# ===================== الطباعة المباشرة (بدون نافذة) على طابعة محددة =====================
+$global:PrnQueue = [Collections.Queue]::new(); $global:PrnBusy = $false; $global:PrnJob = $null
+$global:PrnView = $null; $global:PrnReady = $false; $global:PrnNav = $false; $global:PrnTimer = $null
+function global:Get-PrinterList {
+    $out = @(); $def = ''
+    try { $def = (New-Object System.Drawing.Printing.PrinterSettings).PrinterName } catch {}
+    try { foreach ($n in [System.Drawing.Printing.PrinterSettings]::InstalledPrinters) { $out += @{ name = [string]$n; isDefault = ([string]$n -eq $def) } } } catch {}
+    return $out
+}
+function global:Send-PrintReply($Id, $Ok, $Err) {
+    try { $global:WebView.CoreWebView2.PostWebMessageAsString($global:Ser.Serialize(@{ id = [int]$Id; v = @{ ok = [bool]$Ok; error = [string]$Err } })) } catch { Write-AppError 'print reply' ($_ | Out-String) }
+}
+function global:Add-PrintJob($Id, $Arg) {
+    $global:PrnQueue.Enqueue(@{ id = $Id; a = $Arg })
+    Start-PrintPump
+}
+function global:Start-PrintPump {
+    if ($global:PrnBusy -or $global:PrnQueue.Count -eq 0) { return }
+    $j = $global:PrnQueue.Dequeue(); $global:PrnBusy = $true
+    $global:PrnJob = @{ id = $j.id; a = $j.a; stage = 'init'; t0 = [DateTime]::UtcNow; task = $null; file = '' }
+    if (-not $global:PrnTimer) {
+        $global:PrnTimer = [Windows.Forms.Timer]::new(); $global:PrnTimer.Interval = 150
+        $global:PrnTimer.Add_Tick({ try { Step-PrintJob } catch { Complete-PrintJob $false ('خطأ: ' + $_.Exception.Message); Write-AppError 'print step' ($_ | Out-String) } })
+    }
+    $global:PrnTimer.Start()
+}
+function global:Complete-PrintJob($Ok, $Err) {
+    $j = $global:PrnJob; $global:PrnJob = $null
+    if ($j) {
+        if ($j.file) { try { Remove-Item -LiteralPath $j.file -Force -ErrorAction SilentlyContinue } catch {} }
+        Send-PrintReply $j.id $Ok $Err
+    }
+    $global:PrnBusy = $false
+    if ($global:PrnQueue.Count -gt 0) { Start-PrintPump } else { $global:PrnTimer.Stop() }
+}
+function global:Initialize-PrintView {
+    $pv = [Microsoft.Web.WebView2.WinForms.WebView2]::new()
+    $pv.Bounds = [Drawing.Rectangle]::new(0, 0, 420, 700)
+    $props = [Microsoft.Web.WebView2.WinForms.CoreWebView2CreationProperties]::new()
+    $props.UserDataFolder = Join-Path $global:DataDir 'webview2-data'
+    $props.AdditionalBrowserArguments = '--no-proxy-server'
+    $pv.CreationProperties = $props
+    $pv.Add_CoreWebView2InitializationCompleted({
+        param($s, $e)
+        if ($e.IsSuccess) { $s.CoreWebView2.add_NavigationCompleted({ $global:PrnNav = $true }); $global:PrnReady = $true }
+        else { Write-AppError 'print view init' ($e.InitializationException | Out-String) }
+    })
+    $global:MainForm.Controls.Add($pv); $pv.SendToBack()   # خلف الواجهة الرئيسية فلا يظهر
+    $global:PrnView = $pv
+    [void]$pv.EnsureCoreWebView2Async($null)
+}
+function global:Step-PrintJob {
+    $j = $global:PrnJob; if (-not $j) { return }
+    if (([DateTime]::UtcNow - $j.t0).TotalSeconds -gt 40) { Complete-PrintJob $false 'انتهت مهلة الطباعة'; return }
+    switch ($j.stage) {
+        'init' {
+            if (-not $global:PrnView) { Initialize-PrintView }
+            $j.stage = 'waitinit'
+        }
+        'waitinit' {
+            if (-not $global:PrnReady) { return }
+            $html = [string]$j.a['html']
+            if (-not $html) { Complete-PrintJob $false 'لا يوجد محتوى للطباعة'; return }
+            $f = Join-Path ([IO.Path]::GetTempPath()) ('dalala-print-' + [Guid]::NewGuid().ToString('N') + '.html')
+            [IO.File]::WriteAllText($f, $html, [Text.UTF8Encoding]::new($true)); $j.file = $f
+            $global:PrnNav = $false
+            $global:PrnView.CoreWebView2.Navigate([Uri]::new($f).AbsoluteUri)
+            $j.stage = 'waitnav'
+        }
+        'waitnav' {
+            if (-not $global:PrnNav) { return }
+            $j.task = $global:PrnView.CoreWebView2.ExecuteScriptAsync('Math.ceil(Math.max(document.documentElement.scrollHeight, document.body.scrollHeight))')
+            $j.stage = 'waitheight'
+        }
+        'waitheight' {
+            if (-not $j.task.IsCompleted) { return }
+            if ($j.task.IsFaulted) { Complete-PrintJob $false 'تعذر قياس الصفحة'; return }
+            $h = 0.0; [void][double]::TryParse([string]$j.task.Result, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$h)
+            $core = $global:PrnView.CoreWebView2
+            $ps = $core.Environment.CreatePrintSettings()
+            $paper = 80; try { $paper = [int]$j.a['paper'] } catch {}
+            if ($paper -ge 200) { $ps.PageWidth = 8.27; $ps.PageHeight = 11.69; $ps.MarginTop = 0.4; $ps.MarginBottom = 0.4; $ps.MarginLeft = 0.4; $ps.MarginRight = 0.4 }
+            else {
+                $ps.PageWidth = [Math]::Round($paper / 25.4, 3); $ps.PageHeight = [Math]::Round([Math]::Max(1.5, $h / 96 + 0.25), 3)
+                $ps.MarginTop = 0; $ps.MarginBottom = 0; $ps.MarginLeft = 0; $ps.MarginRight = 0
+            }
+            $ps.ShouldPrintBackgrounds = $true; $ps.ShouldPrintHeaderAndFooter = $false
+            $cp = 1; try { $cp = [Math]::Max(1, [Math]::Min(5, [int]$j.a['copies'])) } catch {}
+            $ps.Copies = $cp
+            $name = [string]$j.a['deviceName']; if ($name) { $ps.PrinterName = $name }
+            $j.task = $core.PrintAsync($ps)
+            $j.stage = 'waitprint'
+        }
+        'waitprint' {
+            if (-not $j.task.IsCompleted) { return }
+            if ($j.task.IsFaulted) { Complete-PrintJob $false ([string]$j.task.Exception.GetBaseException().Message); return }
+            $st = [string]$j.task.Result
+            if ($st -eq 'Succeeded') { Complete-PrintJob $true '' }
+            elseif ($st -eq 'PrinterUnavailable') { Complete-PrintJob $false 'الطابعة غير متاحة، تحقق من اسمها وأنها تعمل' }
+            else { Complete-PrintJob $false ('فشلت الطباعة (' + $st + ')') }
+        }
+    }
+}
+
 # ===================== جسر الرسائل بين الواجهة والبرنامج =====================
 function global:Invoke-HostCall([string]$Method, $Arg) {
     switch ($Method) {
@@ -192,6 +297,7 @@ function global:Invoke-HostCall([string]$Method, $Arg) {
             $global:MainForm.BeginInvoke([Action]{ $global:MainForm.Close() }) | Out-Null
             return $true
         }
+        'prn.list' { return @(Get-PrinterList) }
         'bk.save' { return (Save-Backup ([string]$Arg['name']) ([string]$Arg['json'])) }
         'bk.list' {
             $dir = Get-BackupDir; if (-not (Test-Path -LiteralPath $dir)) { return @() }
@@ -208,6 +314,7 @@ function global:Invoke-UiMessage([string]$Text) {
     $id = 0
     try {
         $m = $global:Ser.DeserializeObject($Text); $id = [int]$m['id']
+        if ([string]$m['m'] -eq 'prn.print') { Add-PrintJob $id $m['a']; return $null }
         $v = Invoke-HostCall ([string]$m['m']) $m['a']
         return $global:Ser.Serialize(@{ id = $id; v = $v })
     } catch { Write-AppError 'host call' ($_ | Out-String); return $global:Ser.Serialize(@{ id = $id; v = $null; error = [string]$_.Exception.Message }) }
@@ -229,6 +336,7 @@ function global:Get-PageShim($Net) {
  def('dalalaDesktop', cfg.desktop);
  def('dalalaNet', { config: Object.freeze(cfg.net), info: function () { return call('net.info'); }, test: function (o) { return call('net.test', o); }, set: function (o) { return call('net.set', o); } });
  def('dalalaBackup', { save: function (n, j) { return call('bk.save', { name: n, json: j }); }, list: function () { return call('bk.list'); }, read: function (n) { return call('bk.read', { name: n }); }, open: function () { return call('bk.open'); } });
+ def('dalalaPrint', { printers: function () { return call('prn.list'); }, print: function (html, o) { o = o || {}; return call('prn.print', { html: html, deviceName: o.deviceName || '', copies: o.copies || 1, paper: o.paper || 80 }); } });
  def('dalalaFiles', { onSaved: function (cb) { window.__dalalaSaved = cb; }, openLast: function () { return call('file.openLast'); } });
 })();
 '@
@@ -300,7 +408,7 @@ function global:Start-WebApp {
                 param($a, $b)
                 $resp = $null
                 try { $resp = Invoke-UiMessage ([string]$b.TryGetWebMessageAsString()) } catch { Write-AppError 'WebMessage' ($_ | Out-String); $resp = '{"id":0,"error":"internal"}' }
-                try { $a.PostWebMessageAsString($resp) } catch { Write-AppError 'PostWebMessage' ($_ | Out-String) }
+                if ($null -ne $resp) { try { $a.PostWebMessageAsString($resp) } catch { Write-AppError 'PostWebMessage' ($_ | Out-String) } }
             })
             $core.add_DownloadStarting({
                 param($a, $b)
