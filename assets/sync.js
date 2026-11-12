@@ -227,6 +227,8 @@ const Net = {
   modeFields() {
     const m = this.mode();
     $$('.net-c').forEach(el => el.classList.toggle('hidden', m !== 'client'));
+    const nb = $('#netInfo');   // تلميح قبل الحفظ: بيانات الربط تظهر بعد إعادة التشغيل كجهاز رئيسي
+    if (nb && NETCFG.mode !== 'host') nb.innerHTML = m === 'host' ? '<div class="bg-amber-500/10 border border-amber-500/30 text-amber-200 rounded-xl p-3 text-xs leading-relaxed"><b>خطوة واحدة متبقية:</b> اضغط «حفظ وإعادة التشغيل». بعد أن يفتح البرنامج من جديد يظهر هنا <b>عنوان هذا الجهاز ومفتاح الربط</b> لتكتبهما في الأجهزة الفرعية.</div>' : '';
     $$('.net-mode').forEach(l => { const on = l.querySelector('input').checked; l.classList.toggle('border-sky-500', on); l.classList.toggle('bg-sky-500/10', on); l.classList.toggle('border-slate-700', !on); });
   },
   async fill() {
