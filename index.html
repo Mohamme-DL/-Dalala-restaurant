@@ -1482,7 +1482,7 @@ VIEWS.invoices = (el) => {
   list = list.slice().reverse();
   const paid = list.filter(o => o.status === 'paid');
   const methodName = { cash: 'نقدي', card: 'بطاقة', split: 'مختلط' };
-  el.innerHTML = `<div class="h-full flex flex-col">` + pageHead('سجل الفواتير', 'fa-receipt', `<button class="btn-ghost text-xs" onclick="Inv.export()"><i class="fa-solid fa-file-csv"></i> تصدير Excel</button>`) +
+  el.innerHTML = `<div class="h-full flex flex-col">` + pageHead('سجل الفواتير', 'fa-receipt', `<button class="btn-primary text-xs" onclick="Docs.menu(()=>Docs.invoicesSpec())"><i class="fa-solid fa-print"></i> طباعة / تصدير</button>`) +
     `<div class="flex flex-wrap gap-2 items-center mb-3">${Perm.can('allInvoices') ? Range.html("App.refresh()") : '<span class="text-xs text-slate-400">فواتير الوردية الحالية</span>'}
       <input id="invQ" class="inp w-56 py-1.5 text-xs" placeholder="رقم الفاتورة / الزبون / الطاولة" value="${esc(Inv.q)}" oninput="Inv.q=this.value;clearTimeout(Inv._t);Inv._t=setTimeout(()=>{App.refresh();const i=$('#invQ');i.focus();i.setSelectionRange(i.value.length,i.value.length)},300)">
       <select class="inp w-auto py-1.5 text-xs" onchange="Inv.status=this.value;App.refresh()">${[['all', 'الكل'], ['paid', 'مدفوعة'], ['void', 'ملغاة'], ['refunded', 'مرتجعة']].map(([k, v]) => `<option value="${k}" ${Inv.status === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
@@ -1547,7 +1547,7 @@ VIEWS.expenses = (el) => {
   list = list.slice().reverse();
   const total = list.reduce((s, e) => s + e.amount, 0);
   const cats = ['مشتريات مطبخ', 'خضار وفواكه', 'لحوم ودواجن', 'غاز ووقود', 'رواتب ويوميات', 'كهرباء وماء', 'صيانة', 'نظافة', 'نثريات'];
-  el.innerHTML = pageHead('المصروفات', 'fa-wallet', `<button class="btn-primary" onclick="Exp.add()"><i class="fa-solid fa-plus"></i> مصروف جديد</button>`) +
+  el.innerHTML = pageHead('المصروفات', 'fa-wallet', `<button class="btn-ghost" onclick="Docs.menu(()=>Docs.expensesSpec())"><i class="fa-solid fa-print"></i> طباعة / تصدير</button><button class="btn-primary" onclick="Exp.add()"><i class="fa-solid fa-plus"></i> مصروف جديد</button>`) +
     `<div class="flex flex-wrap gap-2 items-center mb-3">${Perm.can('allExpenses') ? Range.html("App.refresh()") : '<span class="text-xs text-slate-400">مصروفات الوردية الحالية (تُخصم من نقد الدرج)</span>'}<span class="text-sm mr-auto">الإجمالي: <b class="num text-rose-400">${money(total)}</b></span></div>
     <div class="card overflow-auto"><table class="tbl"><thead><tr><th>التاريخ</th><th>البند</th><th>الوصف</th><th>المبلغ</th><th>بواسطة</th><th></th></tr></thead><tbody>
     ${list.map(e => `<tr><td class="num text-xs">${fmtDT(e.date)}</td><td><span class="chip bg-slate-800 border-slate-700 text-slate-300">${esc(e.cat || '-')}</span></td><td>${esc(e.desc)}</td><td class="num font-bold text-rose-300">${money(e.amount)}</td><td class="text-xs">${esc(e.userName)}</td>
@@ -1617,7 +1617,7 @@ VIEWS.reports = (el) => {
   const maxH = Math.max(1, ...r.hour);
   const days = Object.entries(r.byDay).sort();
   el.innerHTML = pageHead('التقارير والإحصائيات', 'fa-chart-pie',
-    `<button class="btn-ghost text-xs" onclick="Printer.salesReport()"><i class="fa-solid fa-print"></i> طباعة التقرير</button>
+    `<button class="btn-primary text-xs" onclick="Docs.menu(()=>Docs.reportSpec())"><i class="fa-solid fa-print"></i> طباعة / تصدير</button>
      <button class="btn-ghost text-xs" onclick="Rep.exportProducts()"><i class="fa-solid fa-file-csv"></i> مبيعات الأصناف</button>
      <button class="btn-ghost text-xs" onclick="Rep.shifts()"><i class="fa-solid fa-clock-rotate-left"></i> سجل الورديات</button>
      <button class="btn-ghost text-xs" onclick="Rep.log()"><i class="fa-solid fa-list-check"></i> سجل العمليات</button>`) +
@@ -1666,7 +1666,7 @@ const Rep = {
   },
   shifts() {
     const list = DB.shifts.slice().reverse().slice(0, 100);
-    const w = Modal.open(`<div class="overflow-auto max-h-[65vh]"><table class="tbl"><thead><tr><th>#</th><th>الكاشير</th><th>الفتح</th><th>الإغلاق</th><th>المبيعات</th><th>المتوقع</th><th>الفعلي</th><th>الفرق</th><th></th></tr></thead><tbody>
+    const w = Modal.open(`<div class="mb-2 flex justify-end">${docsBtn('shiftsSpec')}</div><div class="overflow-auto max-h-[60vh]"><table class="tbl"><thead><tr><th>#</th><th>الكاشير</th><th>الفتح</th><th>الإغلاق</th><th>المبيعات</th><th>المتوقع</th><th>الفعلي</th><th>الفرق</th><th></th></tr></thead><tbody>
       ${list.map(s => { const sm = s.summary || Shift.summary(s); return `<tr><td class="num">${s.no}</td><td>${esc(s.userName)}</td><td class="num text-xs">${fmtDT(s.openAt)}</td><td class="num text-xs">${s.closeAt ? fmtDT(s.closeAt) : '<span class="text-emerald-400">مفتوحة</span>'}</td>
         <td class="num">${money(sm.sales, false)}</td><td class="num">${money(s.expected != null ? s.expected : sm.expected, false)}</td><td class="num">${s.closeCash != null ? money(s.closeCash, false) : '-'}</td>
         <td class="num font-bold ${s.diff < 0 ? 'text-rose-400' : s.diff > 0 ? 'text-amber-300' : 'text-emerald-400'}">${s.diff != null ? money(s.diff, false) : '-'}</td>
@@ -1675,7 +1675,7 @@ const Rep = {
     $$('[data-p]', w).forEach(b => b.onclick = () => Printer.shiftReport(DB.shifts.find(s => s.id === b.dataset.p)));
   },
   log() {
-    Modal.open(`<div class="overflow-auto max-h-[65vh]"><table class="tbl"><thead><tr><th>الوقت</th><th>المستخدم</th><th>العملية</th><th>التفاصيل</th></tr></thead><tbody>
+    Modal.open(`<div class="mb-2 flex justify-end">${docsBtn('logSpec')}</div><div class="overflow-auto max-h-[60vh]"><table class="tbl"><thead><tr><th>الوقت</th><th>المستخدم</th><th>العملية</th><th>التفاصيل</th></tr></thead><tbody>
       ${DB.log.slice(0, 400).map(l => `<tr><td class="num text-xs whitespace-nowrap">${fmtDT(l.t)}</td><td class="text-xs">${esc(l.u)}</td><td class="text-xs font-bold">${esc(l.action)}</td><td class="text-xs text-slate-400">${esc(l.detail)}</td></tr>`).join('')}</tbody></table></div>`,
       { title: 'سجل العمليات (للمراجعة والرقابة)', icon: 'fa-list-check', size: 'max-w-3xl' });
   }
@@ -1691,7 +1691,8 @@ VIEWS.products = (el) => {
   const list = DB.products.filter(p => (Prod.cat === 'all' || p.catId === Prod.cat) && (!q || p.name.toLowerCase().includes(q) || String(p.code).includes(q)));
   const catName = id => (DB.categories.find(c => c.id === id) || {}).name || '—';
   el.innerHTML = `<div class="h-full flex flex-col">` + pageHead('الأصناف والأقسام', 'fa-burger',
-    `<button class="btn-ghost text-xs" onclick="Prod.importCSV()"><i class="fa-solid fa-file-import"></i> استيراد</button>
+    `<button class="btn-ghost text-xs" onclick="Docs.menu(()=>Docs.productsSpec())"><i class="fa-solid fa-print"></i> طباعة / تصدير</button>
+     <button class="btn-ghost text-xs" onclick="Prod.importCSV()"><i class="fa-solid fa-file-import"></i> استيراد</button>
      <button class="btn-ghost text-xs" onclick="Prod.exportCSV()"><i class="fa-solid fa-file-csv"></i> تصدير</button>
      <button class="btn-ghost" onclick="Prod.editCat()"><i class="fa-solid fa-folder-plus"></i> قسم جديد</button>
      <button class="btn-primary" onclick="Prod.edit()"><i class="fa-solid fa-plus"></i> صنف جديد</button>`) +
@@ -1953,7 +1954,7 @@ const Inventory = {
 VIEWS.inventory = (el) => {
   const mats = DB.materials, low = mats.filter(m => m.min > 0 && m.stock <= m.min), val = round(mats.reduce((a, m) => a + Math.max(0, m.stock) * m.cost, 0));
   const tabs = [['materials', 'المواد الخام'], ['purchases', 'سجل المشتريات']].map(t => `<button onclick="Inventory.tab='${t[0]}';App.refresh()" class="px-4 py-1.5 rounded-lg text-sm font-bold ${Inventory.tab === t[0] ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400'}">${t[1]}</button>`).join('');
-  el.innerHTML = pageHead('المخزون والمشتريات', 'fa-boxes-stacked', `<button class="btn-ghost" onclick="Inventory.purchase()"><i class="fa-solid fa-cart-flatbed"></i> فاتورة شراء</button><button class="btn-primary" onclick="Inventory.editMat()"><i class="fa-solid fa-plus"></i> مادة خام</button>`) +
+  el.innerHTML = pageHead('المخزون والمشتريات', 'fa-boxes-stacked', `<button class="btn-ghost" onclick="Docs.menu(()=>Docs.inventorySpec())"><i class="fa-solid fa-print"></i> طباعة / تصدير</button><button class="btn-ghost" onclick="Inventory.purchase()"><i class="fa-solid fa-cart-flatbed"></i> فاتورة شراء</button><button class="btn-primary" onclick="Inventory.editMat()"><i class="fa-solid fa-plus"></i> مادة خام</button>`) +
     `<div class="grid grid-cols-3 gap-3 mb-3">${kpi('عدد المواد', mats.length, 'fa-flask', 'text-teal-300')}${kpi('قيمة المخزون', money(val), 'fa-coins', 'text-emerald-300')}${kpi('مواد منخفضة', low.length, 'fa-triangle-exclamation', low.length ? 'text-rose-300' : 'text-slate-300')}</div>
     <div class="flex gap-2 mb-3">${tabs}</div>` +
     (Inventory.tab === 'materials' ? `<div class="card overflow-auto"><table class="tbl"><thead><tr><th>المادة</th><th>الوحدة</th><th>الرصيد</th><th>تكلفة الوحدة</th><th>الحد الأدنى</th><th>القيمة</th><th></th></tr></thead><tbody>
@@ -2080,6 +2081,249 @@ VIEWS.settings = (el) => {
 };
 // طبقة الطباعة: نسخة Electron (window.dalala) أو نسخة WebView2 (window.dalalaPrint)
 const PRN = () => (Store.isDesktop && window.dalala && window.dalala.print) ? window.dalala : (window.dalalaPrint || null);
+/* =====================================================================
+   Docs: طباعة وتصدير التقارير والجداول — A4 / حراري / Word (.docx) / Excel (CSV)
+   كل صفحة تبني «مواصفة» (عنوان + مؤشرات + جداول) ثم يخرجها هذا القسم بالشكل المطلوب
+   ===================================================================== */
+const Docs = {
+  fname(spec) { return (spec.file || spec.title).replace(/[\\/:*?"<>|]+/g, ' ').trim() + '_' + dayKey(Date.now()); },
+  invList() {
+    const [a, b] = Range.bounds(), q = Inv.q.trim().toLowerCase();
+    let list = DB.orders.filter(o => o.date >= a && o.date <= b);
+    if (!Perm.can('allInvoices')) { const sh = Shift.current(); list = list.filter(o => sh && o.shiftId === sh.id); }
+    if (Inv.status !== 'all') list = list.filter(o => o.status === Inv.status);
+    if (q) list = list.filter(o => String(o.no).includes(q) || (o.customer && ((o.customer.name || '').toLowerCase().includes(q) || (o.customer.phone || '').includes(q))) || (o.tableName || '').includes(q));
+    return list.slice().reverse();
+  },
+  expList() {
+    const [a, b] = Range.bounds(); let list = DB.expenses.filter(e => e.date >= a && e.date <= b);
+    if (!Perm.can('allExpenses')) { const sh = Shift.current(); list = DB.expenses.filter(e => sh && e.shiftId === sh.id); }
+    return list.slice().reverse();
+  },
+  period() { return Range.from === Range.to ? Range.from : `من ${Range.from} إلى ${Range.to}`; },
+  menu(getSpec) {
+    let spec; try { spec = getSpec(); } catch (e) { console.error(e); return toast('تعذر تجهيز التقرير', 'error'); }
+    const opt = (m, icon, color, t, d) => `<button type="button" data-m="${m}" class="card p-3.5 text-right hover:border-sky-500 transition flex items-center gap-3 w-full"><span class="w-11 h-11 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center ${color}"><i class="fa-solid ${icon} text-xl"></i></span><span><div class="font-bold">${t}</div><div class="text-[11px] text-slate-400">${d}</div></span></button>`;
+    const w = Modal.open(`<p class="text-sm text-slate-300 mb-3 font-bold">${esc(spec.title)}${spec.sub ? `<span class="text-slate-500 font-normal"> — ${esc(spec.sub)}</span>` : ''}</p>
+      <div class="space-y-2">${opt('a4', 'fa-file-lines', 'text-sky-400', 'طباعة A4', 'تقرير منسّق على ورقة A4 بهوية المحل')}
+      ${opt('thermal', 'fa-receipt', 'text-amber-400', 'طباعة حرارية', 'نسخة مختصرة على ورق الفواتير الحراري (' + (S().paper === 58 ? '58' : '80') + ' مم)')}
+      ${opt('word', 'fa-file-word', 'text-indigo-400', 'تصدير Word', 'ملف .docx منسّق وجاهز للتعديل والإرسال')}
+      ${opt('csv', 'fa-file-csv', 'text-emerald-400', 'تصدير Excel', 'ملف CSV يفتح في Excel')}</div>`, { title: 'طباعة / تصدير', icon: 'fa-print', size: 'max-w-sm' });
+    $$('[data-m]', w).forEach(b => b.onclick = () => { Modal.close(); this.run(b.dataset.m, spec); });
+  },
+  async run(mode, spec) {
+    try {
+      if (mode === 'a4') this.printA4(spec);
+      else if (mode === 'thermal') Printer.print(this.thermal(spec), { paper: S().paper === 58 ? 58 : 80 });
+      else if (mode === 'word') { const blob = await this.docx(spec); downloadFile(this.fname(spec) + '.docx', blob); toast('تم تجهيز ملف Word', 'success'); }
+      else if (mode === 'csv') {
+        const rows = [[spec.title], spec.sub ? [spec.sub] : [], []];
+        (spec.kpis || []).forEach(k => rows.push([k[0], k[1]])); if ((spec.kpis || []).length) rows.push([]);
+        spec.sections.forEach(s => { rows.push([s.title]); rows.push(s.cols); s.rows.forEach(r => rows.push(r)); if (s.foot) rows.push(s.foot); rows.push([]); });
+        downloadFile(this.fname(spec) + '.csv', toCSV(rows), 'text/csv;charset=utf-8');
+      }
+    } catch (e) { console.error(e); toast('تعذر إنشاء الملف: ' + (e.message || e), 'error'); }
+  },
+
+  /* ---------- A4 (طباعة) ---------- */
+  a4Html(spec) {
+    const s = S(), isN = (sec, i) => sec.num && sec.num.includes(i);
+    const kp = (spec.kpis || []).map(([l, v, tone]) => `<div class="kpi ${tone || ''}"><div class="kl">${esc(l)}</div><div class="kv">${esc(String(v))}</div></div>`).join('');
+    const secs = spec.sections.map(sec => `<h2>${esc(sec.title)}</h2>` + (sec.rows.length
+      ? `<table><thead><tr>${sec.cols.map((c, i) => `<th class="${isN(sec, i) ? 'n' : ''}">${esc(c)}</th>`).join('')}</tr></thead><tbody>${sec.rows.map(r => `<tr>${r.map((v, i) => `<td class="${isN(sec, i) ? 'n' : ''}">${esc(v == null ? '' : String(v))}</td>`).join('')}</tr>`).join('')}</tbody>${sec.foot ? `<tfoot><tr>${sec.foot.map((v, i) => `<td class="${isN(sec, i) ? 'n' : ''}">${esc(v == null ? '' : String(v))}</td>`).join('')}</tr></tfoot>` : ''}</table>`
+      : '<p class="empty">لا توجد بيانات</p>')).join('');
+    const css = `@page{size:A4${spec.landscape ? ' landscape' : ''};margin:12mm 12mm 14mm}
+*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;direction:rtl;color:#0f172a;font-size:11.5px;margin:0;line-height:1.5}
+.hd{display:flex;align-items:center;gap:14px;border-bottom:3px solid #1e3a5f;padding-bottom:10px;margin-bottom:10px}
+.hd img{max-height:62px;max-width:120px;object-fit:contain}.hd .nm{font-size:21px;font-weight:800;color:#1e3a5f}.hd .ad{font-size:10.5px;color:#64748b}
+.hd .rt{margin-right:auto;text-align:left;font-size:10px;color:#64748b;line-height:1.7}
+.ttl{font-size:18px;font-weight:800;margin:4px 0 2px}.sub{color:#475569;font-size:11.5px;margin-bottom:8px}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:8px 0 12px}
+.kpi{border:1px solid #cbd5e1;border-radius:8px;padding:7px 10px;background:#f8fafc;border-right:4px solid #1e3a5f;break-inside:avoid}
+.kpi.good{border-right-color:#16a34a}.kpi.bad{border-right-color:#dc2626}.kpi.warn{border-right-color:#d97706}
+.kl{font-size:10px;color:#64748b}.kv{font-size:15px;font-weight:800;margin-top:1px}
+h2{font-size:13px;color:#1e3a5f;margin:16px 0 6px;padding-bottom:3px;border-bottom:1px solid #cbd5e1;break-after:avoid}
+table{width:100%;border-collapse:collapse;margin-bottom:6px}thead{display:table-header-group}tfoot{display:table-row-group}
+th{background:#1e3a5f;color:#fff;font-weight:700;padding:6px 8px;text-align:right;font-size:11px}
+td{padding:5px 8px;border-bottom:1px solid #e2e8f0}tbody tr:nth-child(even) td{background:#f1f5f9}tr{break-inside:avoid}
+th.n,td.n{text-align:center}tfoot td{background:#e2e8f0!important;font-weight:800;border-top:2px solid #1e3a5f}
+.empty{color:#94a3b8}.ft{margin-top:16px;padding-top:6px;border-top:1px solid #cbd5e1;font-size:9.5px;color:#64748b;display:flex;justify-content:space-between}`;
+    const head = `<div class="hd">${s.logo ? `<img src="${s.logo}">` : ''}<div><div class="nm">${esc(s.name)}</div><div class="ad">${esc([s.address, s.phone ? 'هاتف: ' + s.phone : ''].filter(Boolean).join(' — '))}</div></div>
+      <div class="rt">تاريخ الطباعة: ${fmtDT(Date.now())}<br>بواسطة: ${esc(App.user ? App.user.name : '')}</div></div>`;
+    return `<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${esc(spec.title)}</title><style>${css}</style></head><body>${head}
+      <div class="ttl">${esc(spec.title)}</div>${spec.sub ? `<div class="sub">${esc(spec.sub)}</div>` : ''}${kp ? `<div class="kpis">${kp}</div>` : ''}${secs}
+      <div class="ft"><span>${esc(s.name)}</span><span>منظومة دلالة للمطاعم والمقاهي</span></div></body></html>`;
+  },
+  printA4(spec) {
+    const f = $('#printFrame');
+    f.onload = () => { f.onload = null; try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { console.error(e); } setTimeout(() => window.focus(), 50); };
+    f.srcdoc = this.a4Html(spec);
+  },
+
+  /* ---------- حراري (نسخة مختصرة) ---------- */
+  thermal(spec) {
+    const r = (k, v, cls = '') => `<div class="row ${cls}"><span>${esc(String(k))}</span><span>${esc(String(v == null ? '' : v))}</span></div>`;
+    let h = Printer.header() + `<div class="hr"></div><div class="c b">${esc(spec.title)}</div>${spec.sub ? `<div class="c sm">${esc(spec.sub)}</div>` : ''}<div class="c sm">طُبع: ${fmtDT(Date.now())}</div><div class="hr"></div>`;
+    (spec.kpis || []).forEach(k => { h += r(k[0], k[1], 'b'); });
+    spec.sections.forEach(sec => {
+      if (!sec.rows.length) return;
+      const n = sec.cols.length, t = sec.thermal || (n <= 2 ? [0, n - 1] : [0, n - 2, n - 1]);
+      h += `<div class="hr"></div><div class="c b">${esc(sec.title)}</div>`;
+      sec.rows.forEach(row => {
+        if (t.length === 2) h += r(row[t[0]], row[t[1]]);
+        else h += `<div class="b">${esc(String(row[t[0]] == null ? '' : row[t[0]]))}</div>` + r(sec.cols[t[1]] + ': ' + row[t[1]], row[t[2]], 'sm');
+      });
+      if (sec.foot) { const fv = sec.foot.filter(x => x !== '' && x != null); h += `<div class="hr"></div>` + r('الإجمالي', fv[fv.length - 1], 'b'); }
+    });
+    return h + `<div class="hr"></div><div class="c sm">— نهاية التقرير —</div>`;
+  },
+
+  /* ---------- Word (.docx حقيقي) ---------- */
+  _crcT: null,
+  crc32(u8) { let t = this._crcT; if (!t) { t = this._crcT = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } } let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = t[(c ^ u8[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; },
+  zip(files) {
+    const enc = new TextEncoder(), parts = [], cen = []; let off = 0;
+    const d = new Date(), dt = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate(), tm = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+    files.forEach(f => {
+      const nm = enc.encode(f.name), data = f.data, crc = this.crc32(data);
+      const lh = new DataView(new ArrayBuffer(30)); lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(8, 0, true); lh.setUint16(10, tm, true); lh.setUint16(12, dt, true); lh.setUint32(14, crc, true); lh.setUint32(18, data.length, true); lh.setUint32(22, data.length, true); lh.setUint16(26, nm.length, true); lh.setUint16(28, 0, true);
+      parts.push(new Uint8Array(lh.buffer), nm, data);
+      const ch = new DataView(new ArrayBuffer(46)); ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true); ch.setUint16(10, 0, true); ch.setUint16(12, tm, true); ch.setUint16(14, dt, true); ch.setUint32(16, crc, true); ch.setUint32(20, data.length, true); ch.setUint32(24, data.length, true); ch.setUint16(28, nm.length, true); ch.setUint32(42, off, true);
+      cen.push(new Uint8Array(ch.buffer), nm); off += 30 + nm.length + data.length;
+    });
+    const cl = cen.reduce((a, b) => a + b.length, 0), eo = new DataView(new ArrayBuffer(22));
+    eo.setUint32(0, 0x06054b50, true); eo.setUint16(8, files.length, true); eo.setUint16(10, files.length, true); eo.setUint32(12, cl, true); eo.setUint32(16, off, true);
+    return new Blob([...parts, ...cen, new Uint8Array(eo.buffer)], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+  },
+  async logoInfo() {
+    const lg = S().logo; if (!lg || !/^data:image\/(png|jpe?g);base64,/i.test(lg)) return null;
+    const ext = /png/i.test(lg.slice(0, 20)) ? 'png' : 'jpeg', b64 = lg.split(',')[1], bin = atob(b64), u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    const dim = await new Promise(res => { const im = new Image(); im.onload = () => res([im.width, im.height]); im.onerror = () => res(null); im.src = lg; });
+    if (!dim) return null;
+    const k = Math.min(1, 150 / dim[0], 62 / dim[1]);
+    return { ext, data: u8, cx: Math.round(dim[0] * k * 9525), cy: Math.round(dim[1] * k * 9525) };
+  },
+  async docx(spec) {
+    const X = v => String(v == null ? '' : v).replace(/[&<>"\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] || ''));
+    const NAVY = '1E3A5F', GREY = '64748B', land = !!spec.landscape || spec.sections.some(s => s.cols.length >= 8), W = land ? 14570 : 9638;
+    const run = (t, o = {}) => `<w:r><w:rPr><w:rFonts w:ascii="Tahoma" w:hAnsi="Tahoma" w:cs="Tahoma"/>${o.b ? '<w:b/><w:bCs/>' : ''}<w:color w:val="${o.c || '0F172A'}"/><w:sz w:val="${o.sz || 20}"/><w:szCs w:val="${o.sz || 20}"/><w:rtl/></w:rPr><w:t xml:space="preserve">${X(t)}</w:t></w:r>`;
+    const para = (runs, o = {}) => `<w:p><w:pPr>${o.keep ? '<w:keepNext/>' : ''}${o.bdr ? `<w:pBdr><w:bottom w:val="single" w:sz="${o.bdr[1]}" w:space="3" w:color="${o.bdr[0]}"/></w:pBdr>` : ''}<w:bidi/><w:spacing w:before="${o.sb || 0}" w:after="${o.sa || 0}"/>${o.jc ? `<w:jc w:val="${o.jc}"/>` : ''}</w:pPr>${runs}</w:p>`;
+    const cell = (w, content, fill, extra = '') => `<w:tc><w:tcPr><w:tcW w:w="${w}" w:type="dxa"/>${extra}${fill ? `<w:shd w:val="clear" w:color="auto" w:fill="${fill}"/>` : ''}<w:vAlign w:val="center"/></w:tcPr>${content}</w:tc>`;
+    const tbl = (grid, rows, borders = 'CBD5E1') => `<w:tbl><w:tblPr><w:bidiVisual/><w:tblW w:w="${grid.reduce((a, b) => a + b, 0)}" w:type="dxa"/><w:tblBorders>${['top', 'left', 'bottom', 'right', 'insideH', 'insideV'].map(s => `<w:${s} w:val="single" w:sz="4" w:space="0" w:color="${borders}"/>`).join('')}</w:tblBorders><w:tblLayout w:type="fixed"/><w:tblCellMar><w:top w:w="55" w:type="dxa"/><w:left w:w="100" w:type="dxa"/><w:bottom w:w="55" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>${grid.map(g => `<w:gridCol w:w="${g}"/>`).join('')}</w:tblGrid>${rows}</w:tbl>`;
+    const logo = await this.logoInfo(); let body = '';
+    // الترويسة
+    if (logo) body += `<w:p><w:pPr><w:bidi/><w:spacing w:before="0" w:after="60"/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${logo.cx}" cy="${logo.cy}"/><wp:docPr id="1" name="logo"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="0" name="logo.${logo.ext}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdLogo"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${logo.cx}" cy="${logo.cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`;
+    const s = S();
+    body += para(run(s.name, { b: 1, sz: 40, c: NAVY }), { sa: 20 });
+    const contact = [s.address, s.phone ? 'هاتف: ' + s.phone : ''].filter(Boolean).join(' — ');
+    body += para(contact ? run(contact, { sz: 18, c: GREY }) : '', { bdr: [NAVY, 24], sa: 160 });
+    body += para(run(spec.title, { b: 1, sz: 34 }), { sa: 40, keep: 1 });
+    if (spec.sub) body += para(run(spec.sub, { sz: 20, c: '475569' }), { sa: 40 });
+    body += para(run('تاريخ الطباعة: ' + fmtDT(Date.now()) + (App.user ? ' — بواسطة: ' + App.user.name : ''), { sz: 16, c: GREY }), { sa: 160 });
+    // المؤشرات
+    const kp = spec.kpis || [];
+    if (kp.length) {
+      const per = land ? 5 : 4, cw = Math.floor(W / per), grid = Array(per).fill(cw); let rows = '';
+      const tone = { good: '16A34A', bad: 'DC2626', warn: 'D97706' };
+      for (let i = 0; i < kp.length; i += per) {
+        let cs = '';
+        for (let j = 0; j < per; j++) {
+          const k = kp[i + j];
+          cs += k ? cell(cw, para(run(k[0], { sz: 16, c: GREY }), { sa: 20 }) + para(run(String(k[1]), { b: 1, sz: 28, c: tone[k[2]] || NAVY })), 'F1F5F9')
+                  : cell(cw, para(''), '');
+        }
+        rows += `<w:tr><w:trPr><w:cantSplit/></w:trPr>${cs}</w:tr>`;
+      }
+      body += tbl(grid, rows, 'FFFFFF') + para('', { sa: 120 });
+    }
+    // الجداول
+    spec.sections.forEach(sec => {
+      body += para(run(sec.title, { b: 1, sz: 26, c: NAVY }), { keep: 1, sb: 200, sa: 80, bdr: ['CBD5E1', 6] });
+      if (!sec.rows.length) { body += para(run('لا توجد بيانات', { sz: 18, c: '94A3B8' }), { sa: 80 }); return; }
+      const n = sec.cols.length, wts = sec.cols.map((c, i) => Math.min(34, Math.max(7, c.length + 2, ...sec.rows.map(r => String(r[i] == null ? '' : r[i]).length)))), tw = wts.reduce((a, b) => a + b, 0);
+      let grid = wts.map(w => Math.floor(W * w / tw)); grid[0] += W - grid.reduce((a, b) => a + b, 0);
+      const num = i => sec.num && sec.num.includes(i), fs = n >= 8 ? 17 : 19;
+      const hdr = `<w:tr><w:trPr><w:cantSplit/><w:tblHeader/></w:trPr>${sec.cols.map((c, i) => cell(grid[i], para(run(c, { b: 1, sz: fs, c: 'FFFFFF' }), { jc: num(i) ? 'center' : '' }), NAVY)).join('')}</w:tr>`;
+      const rws = sec.rows.map((r, ri) => `<w:tr><w:trPr><w:cantSplit/></w:trPr>${sec.cols.map((c, i) => cell(grid[i], para(run(r[i] == null ? '' : r[i], { sz: fs }), { jc: num(i) ? 'center' : '' }), ri % 2 ? 'F1F5F9' : '')).join('')}</w:tr>`).join('');
+      const ft = sec.foot ? `<w:tr><w:trPr><w:cantSplit/></w:trPr>${sec.cols.map((c, i) => cell(grid[i], para(run(sec.foot[i] == null ? '' : sec.foot[i], { b: 1, sz: fs, c: NAVY }), { jc: num(i) ? 'center' : '' }), 'E2E8F0')).join('')}</w:tr>` : '';
+      body += tbl(grid, hdr + rws + ft) + para('', { sa: 80 });
+    });
+    const NS = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"';
+    const sect = `<w:sectPr><w:footerReference w:type="default" r:id="rIdF"/><w:pgSz w:w="${land ? 16838 : 11906}" w:h="${land ? 11906 : 16838}"${land ? ' w:orient="landscape"' : ''}/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="567" w:footer="567" w:gutter="0"/><w:bidi/></w:sectPr>`;
+    const fld = (code, ph) => `<w:r><w:rPr><w:sz w:val="16"/><w:szCs w:val="16"/><w:rtl/></w:rPr><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:rPr><w:sz w:val="16"/><w:szCs w:val="16"/><w:rtl/></w:rPr><w:instrText xml:space="preserve"> ${code} </w:instrText></w:r><w:r><w:rPr><w:sz w:val="16"/><w:szCs w:val="16"/><w:rtl/></w:rPr><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:rPr><w:sz w:val="16"/><w:szCs w:val="16"/><w:rtl/></w:rPr><w:t>${ph}</w:t></w:r><w:r><w:rPr><w:sz w:val="16"/><w:szCs w:val="16"/><w:rtl/></w:rPr><w:fldChar w:fldCharType="end"/></w:r>`;
+    const footer = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:ftr ${NS}><w:p><w:pPr><w:pBdr><w:top w:val="single" w:sz="4" w:space="4" w:color="CBD5E1"/></w:pBdr><w:bidi/><w:jc w:val="center"/></w:pPr>${run(s.name + '  —  صفحة ', { sz: 16, c: GREY })}${fld('PAGE', '1')}${run(' من ', { sz: 16, c: GREY })}${fld('NUMPAGES', '1')}</w:p></w:ftr>`;
+    const doc = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document ${NS}><w:body>${body}${sect}</w:body></w:document>`;
+    const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Tahoma" w:hAnsi="Tahoma" w:cs="Tahoma"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:lang w:val="en-US" w:bidi="ar-SA"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:bidi/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/></w:style></w:styles>`;
+    const ct = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Default Extension="jpeg" ContentType="image/jpeg"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/></Types>`;
+    const rels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
+    const drels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdS" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rIdF" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>${logo ? `<Relationship Id="rIdLogo" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/logo.${logo.ext}"/>` : ''}</Relationships>`;
+    const enc = new TextEncoder(), files = [
+      { name: '[Content_Types].xml', data: enc.encode(ct) }, { name: '_rels/.rels', data: enc.encode(rels) }, { name: 'word/document.xml', data: enc.encode(doc) },
+      { name: 'word/_rels/document.xml.rels', data: enc.encode(drels) }, { name: 'word/styles.xml', data: enc.encode(styles) }, { name: 'word/footer1.xml', data: enc.encode(footer) }];
+    if (logo) files.push({ name: 'word/media/logo.' + logo.ext, data: logo.data });
+    return this.zip(files);
+  },
+
+  /* ---------- مواصفات الصفحات ---------- */
+  reportSpec() {
+    const r = reportData(), m = v => money(v, false), pct = (v, t) => t ? (v / t * 100).toFixed(1) + '%' : '0%';
+    const top = Object.entries(r.prod).sort((a, b) => b[1].total - a[1].total), net = r.profit - r.expenses;
+    const pair = o => Object.entries(o).sort((a, b) => b[1] - a[1]).map(([k, v]) => [k, m(v), pct(v, r.sales)]);
+    const days = Object.entries(r.byDay).sort(), hours = r.hour.map((v, h) => [h, v]).filter(x => x[1] > 0);
+    return { title: 'تقرير المبيعات والإحصائيات', file: 'تقرير_المبيعات', sub: 'الفترة: ' + this.period(),
+      kpis: [['إجمالي المبيعات', money(r.sales), 'good'], ['عدد الفواتير', r.count], ['متوسط الفاتورة', money(r.avg)], ['المصروفات', money(r.expenses), 'bad'],
+        ['صافي الربح التقديري', money(net), net >= 0 ? 'good' : 'bad'], ['نقدي', money(r.cash)], ['بطاقة', money(r.card)], ['الخصومات', money(r.discount), 'warn'],
+        ['الخدمة', money(r.service)], ['الضريبة', money(r.tax)], ['التوصيل', money(r.delivery)], ['ملغاة / مرتجعة', r.voids.length + ' — ' + money(r.voids.reduce((s, o) => s + o.total, 0)), 'bad']],
+      sections: [
+        { title: 'الأصناف الأكثر مبيعاً', cols: ['#', 'الصنف', 'الكمية', 'المبيعات', 'النسبة'], num: [0, 2, 3, 4], rows: top.map(([n, v], i) => [i + 1, n, v.qty, m(v.total), pct(v.total, r.sales)]), thermal: [1, 2, 3], foot: ['', 'الإجمالي', top.reduce((a, [, v]) => a + v.qty, 0), m(r.sales), ''] },
+        { title: 'المبيعات حسب القسم', cols: ['القسم', 'المبيعات', 'النسبة'], num: [1, 2], rows: pair(r.cat), thermal: [0, 1] },
+        { title: 'المبيعات حسب نوع الطلب', cols: ['النوع', 'المبيعات', 'النسبة'], num: [1, 2], rows: pair(r.byType), thermal: [0, 1] },
+        { title: 'المبيعات حسب الكاشير', cols: ['الكاشير', 'المبيعات', 'النسبة'], num: [1, 2], rows: pair(r.byUser), thermal: [0, 1] },
+        { title: 'المصروفات حسب البند', cols: ['البند', 'المبلغ'], num: [1], rows: Object.entries(r.expCats).sort((a, b) => b[1] - a[1]).map(([k, v]) => [k, m(v)]), foot: ['الإجمالي', m(r.expenses)] },
+        { title: 'المبيعات اليومية', cols: ['التاريخ', 'المبيعات'], num: [1], rows: days.map(([d, v]) => [d, m(v)]) },
+        { title: 'المبيعات حسب الساعة', cols: ['الساعة', 'المبيعات'], num: [0, 1], rows: hours.map(([h, v]) => [h + ':00', m(v)]) }] };
+  },
+  invoicesSpec() {
+    const list = this.invList(), paid = list.filter(o => o.status === 'paid'), mn = { cash: 'نقدي', card: 'بطاقة', split: 'مختلط' }, st = { paid: 'مدفوعة', void: 'ملغاة', refunded: 'مرتجعة' };
+    return { title: 'سجل الفواتير', sub: 'الفترة: ' + this.period() + (Inv.status !== 'all' ? ' — الحالة: ' + st[Inv.status] : ''), landscape: true,
+      kpis: [['عدد الفواتير المدفوعة', paid.length], ['إجمالي المبيعات', money(paid.reduce((s, o) => s + o.total, 0)), 'good'], ['ملغاة / مرتجعة', list.length - paid.length, 'bad']],
+      sections: [{ title: 'الفواتير', cols: ['رقم', 'التاريخ', 'النوع', 'الزبون', 'الكاشير', 'الدفع', 'الخصم', 'الإجمالي', 'الحالة'], num: [0, 6, 7], thermal: [0, 7],
+        rows: list.map(o => [o.no, fmtDT(o.date), TYPES[o.type].name + (o.type === 'dine' ? ' ' + (o.tableName || '') : ''), (o.customer && (o.customer.name || o.customer.phone)) || '', o.userName, mn[o.method] || '', money(o.discountAmt || 0, false), money(o.total, false), st[o.status] || o.status]),
+        foot: ['', '', '', '', '', 'إجمالي المدفوعة', '', money(paid.reduce((s, o) => s + o.total, 0), false), ''] }] };
+  },
+  expensesSpec() {
+    const list = this.expList(), tot = list.reduce((s, e) => s + e.amount, 0);
+    return { title: 'سجل المصروفات', sub: 'الفترة: ' + this.period(), kpis: [['عدد المصروفات', list.length], ['إجمالي المصروفات', money(tot), 'bad']],
+      sections: [{ title: 'المصروفات', cols: ['التاريخ', 'البند', 'الوصف', 'المبلغ', 'بواسطة'], num: [3], thermal: [2, 3], rows: list.map(e => [fmtDT(e.date), e.cat || '-', e.desc || '', money(e.amount, false), e.userName || '']), foot: ['', '', 'الإجمالي', money(tot, false), ''] }] };
+  },
+  productsSpec() {
+    const q = Prod.q.trim().toLowerCase(), cn = id => (DB.categories.find(c => c.id === id) || {}).name || '—';
+    const list = DB.products.filter(p => (Prod.cat === 'all' || p.catId === Prod.cat) && (!q || p.name.toLowerCase().includes(q) || String(p.code).includes(q)));
+    return { title: 'قائمة الأصناف', sub: Prod.cat === 'all' ? 'كل الأقسام' : 'القسم: ' + cn(Prod.cat), kpis: [['عدد الأصناف', list.length], ['المفعّلة', list.filter(p => p.active).length]],
+      sections: [{ title: 'الأصناف', cols: ['الكود', 'الاسم', 'القسم', 'السعر', 'التكلفة', 'المخزون', 'الحالة'], num: [0, 3, 4, 5], thermal: [1, 3],
+        rows: list.map(p => [p.code, p.name, cn(p.catId), money(p.price, false), money(unitCost(p), false), p.trackStock ? p.stock : '—', p.active ? 'مفعّل' : 'موقوف']) }] };
+  },
+  inventorySpec() {
+    const mats = DB.materials, val = round(mats.reduce((a, m) => a + Math.max(0, m.stock) * m.cost, 0));
+    return { title: 'المخزون والمواد الخام', sub: 'بتاريخ ' + fmtDT(Date.now()), kpis: [['عدد المواد', mats.length], ['قيمة المخزون', money(val), 'good'], ['مواد منخفضة', mats.filter(m => m.min > 0 && m.stock <= m.min).length, 'bad']],
+      sections: [
+        { title: 'المواد الخام', cols: ['المادة', 'الوحدة', 'الرصيد', 'تكلفة الوحدة', 'الحد الأدنى', 'القيمة'], num: [2, 3, 4, 5], thermal: [0, 2],
+          rows: mats.map(m => [m.name, m.pack ? packName(m) : m.unit, m.pack ? stockText(m) : m.stock, m.pack ? money(m.cost * packG(m), false) : m.cost, m.min || '-', money(Math.max(0, m.stock) * m.cost, false)]), foot: ['الإجمالي', '', '', '', '', money(val, false)] },
+        { title: 'سجل المشتريات', cols: ['التاريخ', 'المورّد', 'الأصناف', 'الإجمالي'], num: [3], thermal: [0, 3],
+          rows: DB.purchases.slice(0, 200).map(p => [fmtDT(p.date), p.supplier || '-', p.lines.map(l => l.name + ' × ' + l.qty + ' ' + l.unit).join('، '), money(p.total, false)]) }] };
+  },
+  shiftsSpec() {
+    const list = DB.shifts.slice().reverse().slice(0, 100);
+    return { title: 'سجل الورديات', landscape: true, sections: [{ title: 'الورديات', cols: ['#', 'الكاشير', 'الفتح', 'الإغلاق', 'المبيعات', 'المتوقع', 'الفعلي', 'الفرق'], num: [0, 4, 5, 6, 7], thermal: [1, 4],
+      rows: list.map(s => { const sm = s.summary || Shift.summary(s); return [s.no, s.userName, fmtDT(s.openAt), s.closeAt ? fmtDT(s.closeAt) : 'مفتوحة', money(sm.sales, false), money(s.expected != null ? s.expected : sm.expected, false), s.closeCash != null ? money(s.closeCash, false) : '-', s.diff != null ? money(s.diff, false) : '-']; }) }] };
+  },
+  logSpec() {
+    return { title: 'سجل العمليات', sections: [{ title: 'آخر العمليات', cols: ['الوقت', 'المستخدم', 'العملية', 'التفاصيل'], thermal: [2, 3], rows: DB.log.slice(0, 400).map(l => [fmtDT(l.t), l.u, l.action, l.detail || '']) }] };
+  }
+};
+const docsBtn = (fn) => `<button class="btn-ghost text-xs" onclick="Docs.menu(()=>Docs.${fn}())"><i class="fa-solid fa-print"></i> طباعة / تصدير</button>`;
+
 const Theme = {
   KEY: 'dalala_ui', DEF: { mode: 'dark', accent: '#0ea5e9' },
   PRESETS: [['#0ea5e9', 'أزرق'], ['#f97316', 'برتقالي'], ['#10b981', 'أخضر'], ['#8b5cf6', 'بنفسجي'], ['#f43f5e', 'وردي'], ['#f59e0b', 'عنبري'], ['#14b8a6', 'تركوازي'], ['#6366f1', 'نيلي']],
@@ -2193,8 +2437,8 @@ const Printer = {
   },
   doc(body, paper) { return `<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><style>${this.css(paper)}</style></head><body>${body}</body></html>`; },
 
-  print(body, { kitchen = false, copies = 1 } = {}) {
-    const s = S(), paper = s.paper;
+  print(body, { kitchen = false, copies = 1, paper: pp } = {}) {
+    const s = S(), paper = pp || s.paper;
     copies = Math.max(1, Math.min(5, parseInt(copies) || 1));
     const dialog = () => {
       const html = this.doc(Array.from({ length: copies }, () => `<div class="page">${body}</div>`).join(''), paper);
