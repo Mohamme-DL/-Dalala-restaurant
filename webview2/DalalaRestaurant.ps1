@@ -281,6 +281,18 @@ function global:Start-WebApp {
                 try { $st.($kv[0]) = $kv[1] } catch { }
             }
             $core.add_NavigationCompleted({ param($a, $b) if (-not $b.IsSuccess) { Write-AppError 'NavigationCompleted failed' ('WebErrorStatus=' + [string]$b.WebErrorStatus + ' server=' + [DalalaRestaurant.MiniHttp]::LastError) } })
+            $core.add_ContainsFullScreenElementChanged({
+                param($a, $b)
+                try {
+                    $f = $global:MainForm
+                    if ($global:WebView.CoreWebView2.ContainsFullScreenElement) {
+                        $f.WindowState = 'Normal'; $f.FormBorderStyle = 'None'
+                        $f.Bounds = [Windows.Forms.Screen]::FromControl($f).Bounds
+                    } else {
+                        $f.FormBorderStyle = 'Sizable'; $f.WindowState = 'Maximized'
+                    }
+                } catch { Write-AppError 'fullscreen' ($_ | Out-String) }
+            })
             $core.add_NewWindowRequested({ param($a, $b) $b.Handled = $true })
             $core.add_NavigationStarting({ param($a, $b) if (-not ([string]$b.Uri).StartsWith('https://dalala-restaurant.app/')) { $b.Cancel = $true; if ([string]$b.Uri -match '^https?://') { try { Start-Process ([string]$b.Uri) } catch {} } } })
             $core.add_WebMessageReceived({
