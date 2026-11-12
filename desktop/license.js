@@ -8,51 +8,66 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { execFileSync } = require('child_process');
-const { publicKey } = require('./license-key');
 const PRODUCT = require('./product.json');
 
-const SPKI_ED25519 = Buffer.from('302a300506032b6570032100', 'hex');
-const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+/* Same activation scheme as the WebView2 edition: a 20-character device code (XXXXX-XXXXX-XXXXX-XXXXX)
+   and an activation code = ECDSA P-256 / SHA-256 signature (64 bytes, base32, 5-char groups) of
+   "DLALA-RESTAURANT|1|<device code without dashes>", made with the vendor's PRIVATE key.
+   The app holds only the PUBLIC key, so it can check activations but never create them. */
+const PUB_HEX = '0269cd0b65558f9421a26c9d0e7e748a436568ed135f2ab30d7d43fc85ce6335e282d689ae6fc12df29f8e10fa483af1e4ccc4e760b7244302ed5f5534c1415d';
+const SPKI_P256 = Buffer.from('3059301306072a8648ce3d020106082a8648ce3d030107034200' + '04', 'hex');
+const B32 = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+const PRODUCT_TAG = 'DLALA-RESTAURANT';
 
-function machineSecret() {
-  try {
-    if (process.platform === 'win32') {
-      const out = execFileSync('reg', ['query', 'HKLM\\SOFTWARE\\Microsoft\\Cryptography', '/v', 'MachineGuid', '/reg:64'], { encoding: 'utf8', windowsHide: true });
-      const m = out.match(/MachineGuid\s+REG_SZ\s+([0-9a-fA-F-]+)/); if (m) return 'win:' + m[1].toLowerCase();
-    } else if (process.platform === 'darwin') {
-      const out = execFileSync('ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice'], { encoding: 'utf8' });
-      const m = out.match(/"IOPlatformUUID" = "([^"]+)"/); if (m) return 'mac:' + m[1];
-    } else {
-      for (const f of ['/etc/machine-id', '/var/lib/dbus/machine-id']) if (fs.existsSync(f)) return 'linux:' + fs.readFileSync(f, 'utf8').trim();
-    }
-  } catch (e) { /* fall through */ }
-  const macs = Object.values(os.networkInterfaces()).flat().filter(n => n && !n.internal && n.mac && n.mac !== '00:00:00:00:00:00').map(n => n.mac).sort();
-  return ['fallback', os.hostname(), (os.cpus()[0] || {}).model, macs[0]].join('|');
+function b32enc(buf) {
+  let out = '', acc = 0, bits = 0;
+  for (const b of buf) { acc = (acc << 8) | b; bits += 8; while (bits >= 5) { out += B32[(acc >> (bits - 5)) & 31]; bits -= 5; } acc &= (1 << bits) - 1; }
+  if (bits > 0) out += B32[(acc << (5 - bits)) & 31];
+  return out;
+}
+function b32dec(text, expected) {
+  let acc = 0, bits = 0; const out = [];
+  const s = String(text || '').toUpperCase().replace(/[-\s]/g, '').replace(/O/g, '0').replace(/[IL]/g, '1');
+  const n = Math.floor(s.length * 5 / 8);
+  for (const c of s) { const v = B32.indexOf(c); if (v < 0) return null; acc = (acc << 5) | v; bits += 5; if (bits >= 8) { if (out.length < n) out.push((acc >> (bits - 8)) & 255); bits -= 8; acc &= (1 << bits) - 1; } }
+  return out.length === expected ? Buffer.from(out) : null;
+}
+const group = (s, n) => (s.match(new RegExp('.{1,' + n + '}', 'g')) || []).join('-');
+
+function run(cmd, args) { try { return execFileSync(cmd, args, { encoding: 'utf8', windowsHide: true, timeout: 15000, stdio: ['ignore', 'pipe', 'ignore'] }); } catch (e) { return ''; } }
+function wmi(cls, prop, wmicAlias) {
+  let out = run('wmic', [wmicAlias, 'get', prop, '/value']);
+  let m = out.match(new RegExp(prop + '=([^\\r\\n]+)', 'i')); if (m && m[1].trim()) return m[1].trim();
+  out = run('powershell', ['-NoProfile', '-NonInteractive', '-Command', `(Get-CimInstance ${cls} | Select-Object -First 1).${prop}`]);
+  return out.trim().split(/\r?\n/)[0] || '';
+}
+function cleanSerial(s) {
+  const t = String(s || '').trim().toUpperCase(); if (!t) return '';
+  if (/O\.E\.M|DEFAULT|NONE|NOT SPECIFIED|SERIAL/.test(t) || t === '0' || t.replace(/[0.-]/g, '').length === 0) return '';
+  return t;
+}
+function machineGuid() {
+  const out = run('reg', ['query', 'HKLM\\SOFTWARE\\Microsoft\\Cryptography', '/v', 'MachineGuid', '/reg:64']);
+  const m = out.match(/MachineGuid\s+REG_SZ\s+([0-9a-fA-F-]+)/); return m ? m[1] : '';
 }
 let cachedId = null;
 function deviceId() {
   if (cachedId) return cachedId;
-  const h = crypto.createHash('sha256').update('dalala-device-v1|' + machineSecret()).digest();
-  let s = ''; for (let i = 0; i < 16; i++) s += ALPHABET[h[i] % 32];
-  return (cachedId = s.match(/.{4}/g).join('-'));
+  const text = 'DLALA-FP|' + machineGuid().trim().toLowerCase() + '|' + wmi('Win32_Processor', 'ProcessorId', 'cpu').toUpperCase() + '|' + cleanSerial(wmi('Win32_BaseBoard', 'SerialNumber', 'baseboard'));
+  const h = crypto.createHash('sha256').update(text, 'utf8').digest().subarray(0, 12);
+  return (cachedId = group(b32enc(h), 5));
 }
-const b64u = s => Buffer.from(String(s).replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+const norm = c => String(c || '').toUpperCase().replace(/[-\s]/g, '');
 
 function verify(key, dev = deviceId()) {
-  const k = String(key || '').replace(/\s+/g, '');
-  const m = k.match(/^DLL1\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)$/);
-  if (!m) return { ok: false, reason: 'format' };
-  let payload; try { payload = JSON.parse(b64u(m[1]).toString('utf8')); } catch (e) { return { ok: false, reason: 'format' }; }
+  const sig = b32dec(key, 64);
+  if (!sig) return { ok: false, reason: 'format' };
   let good = false;
   try {
-    const pub = crypto.createPublicKey({ key: Buffer.concat([SPKI_ED25519, Buffer.from(publicKey, 'base64')]), format: 'der', type: 'spki' });
-    good = crypto.verify(null, Buffer.from(m[1], 'utf8'), pub, b64u(m[2]));
+    const pub = crypto.createPublicKey({ key: Buffer.concat([SPKI_P256, Buffer.from(PUB_HEX, 'hex')]), format: 'der', type: 'spki' });
+    good = crypto.verify('sha256', Buffer.from(PRODUCT_TAG + '|1|' + norm(dev), 'utf8'), { key: pub, dsaEncoding: 'ieee-p1363' }, sig);
   } catch (e) { good = false; }
-  if (!good) return { ok: false, reason: 'signature' };
-  if (payload.p !== PRODUCT.id) return { ok: false, reason: 'product', payload };
-  if (String(payload.d).toUpperCase() !== dev) return { ok: false, reason: 'device', payload };
-  if (payload.e && Date.now() > new Date(payload.e + 'T23:59:59').getTime()) return { ok: false, reason: 'expired', payload };
-  return { ok: true, payload };
+  return good ? { ok: true, payload: { p: PRODUCT.id, d: dev, c: '' } } : { ok: false, reason: 'signature' };
 }
 
 const fileOf = dir => path.join(dir, 'license.dat');
@@ -72,7 +87,7 @@ function check(dir) {
 }
 function activate(dir, key) {
   const r = verify(key);
-  if (r.ok) writeStore(dir, { key: String(key).replace(/\s+/g, ''), at: Date.now(), seen: Date.now() });
+  if (r.ok) writeStore(dir, { key: group(norm(key), 5), at: Date.now(), seen: Date.now() });
   return r;
 }
 module.exports = { deviceId, verify, check, activate, PRODUCT };
