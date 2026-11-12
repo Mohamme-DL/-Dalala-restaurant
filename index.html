@@ -137,6 +137,7 @@
       <section data-view="reports" class="view hidden h-full overflow-y-auto p-4"></section>
       <section data-view="expenses" class="view hidden h-full overflow-y-auto p-4"></section>
       <section data-view="products" class="view hidden h-full overflow-hidden p-4"></section>
+      <section data-view="inventory" class="view hidden h-full overflow-y-auto p-4"></section>
       <section data-view="users" class="view hidden h-full overflow-y-auto p-4"></section>
       <section data-view="settings" class="view hidden h-full overflow-y-auto p-4"></section>
     </main>
@@ -217,6 +218,7 @@ function defaultData() {
   for (let i = 1; i <= 12; i++) tables.push({ id: 't' + i, name: String(i), zone: i <= 8 ? 'الصالة' : 'التراس', seats: 4 });
   return {
     version: 1,
+    materials: [], purchases: [],
     settings: {
       name: 'مطعم وكافيه دلالة', address: 'طرابلس - ليبيا', phone: '09xxxxxxxx', logo: '',
       currency: 'د.ل', decimals: 2, taxRate: 0, serviceRate: 0, serviceDineOnly: true, deliveryFee: 5,
@@ -414,6 +416,7 @@ const PERMS = [
   { g: 'الصفحات', k: 'expenses', n: 'المصروفات', d: true },
   { g: 'الصفحات', k: 'reports', n: 'التقارير', d: false },
   { g: 'الصفحات', k: 'products', n: 'الأصناف والتصنيفات', d: false },
+  { g: 'الصفحات', k: 'inventory', n: 'المخزون والمشتريات', d: false },
   { g: 'الصفحات', k: 'settings', n: 'الإعدادات', d: false },
   { g: 'البيع', k: 'discount', n: 'تطبيق خصم', d: false },
   { g: 'البيع', k: 'editPrice', n: 'تعديل سعر صنف', d: false },
@@ -470,6 +473,7 @@ const NAV = [
   { id: 'expenses', name: 'المصروفات', icon: 'fa-wallet', perm: 'expenses' },
   { id: 'reports', name: 'التقارير', icon: 'fa-chart-pie', perm: 'reports' },
   { id: 'products', name: 'الأصناف', icon: 'fa-burger', perm: 'products' },
+  { id: 'inventory', name: 'المخزون', icon: 'fa-boxes-stacked', perm: 'inventory' },
   { id: 'users', name: 'المستخدمون', icon: 'fa-users', admin: true },
   { id: 'settings', name: 'الإعدادات', icon: 'fa-gear', perm: 'settings' }
 ];
@@ -942,9 +946,10 @@ const POS = {
   add(pid) {
     const p = DB.products.find(x => x.id === pid); if (!p) return;
     if (p.trackStock && p.stock - this.qtyInCart(pid) <= 0) toast(`تنبيه: مخزون "${p.name}" نفد`, 'warning');
+    Inventory.warn(p, this.qtyInCart(pid) + 1);
     const ex = this.cur.items.find(i => i.pid === pid && !i.note && i.price === p.price);
     if (ex) { ex.qty++; this.sel = this.cur.items.indexOf(ex); }
-    else { this.cur.items.push({ pid, name: p.name, price: p.price, cost: p.cost || 0, qty: 1, note: '', sent: 0, kitchen: p.kitchen !== false }); this.sel = this.cur.items.length - 1; }
+    else { this.cur.items.push({ pid, name: p.name, price: p.price, cost: unitCost(p), qty: 1, note: '', sent: 0, kitchen: p.kitchen !== false }); this.sel = this.cur.items.length - 1; }
     this.qtyFresh = true;
     beep(); this.renderOrder(); this.renderGrid();
   },
@@ -1180,6 +1185,7 @@ const POS = {
     DB.open = DB.open.filter(x => x.id !== o.id);
     // stock
     inv.items.forEach(i => { const p = DB.products.find(x => x.id === i.pid); if (p && p.trackStock) p.stock = round(p.stock - i.qty); });
+    inv.mats = Inventory.consume(inv.items);
     logAct('فاتورة', '#' + inv.no + ' — ' + money(inv.total));
     Store.saveNow();
     if (s.autoPrint) Printer.receipt(inv);
@@ -1513,6 +1519,7 @@ Inv.view = function (id) {
     const sameDay = dayKey(o.date) === dayKey(Date.now());
     o.status = sameDay ? 'void' : 'refunded'; o.voidBy = App.user.name; o.voidAt = Date.now(); o.voidReason = reason;
     o.items.forEach(i => { const p = DB.products.find(x => x.id === i.pid); if (p && p.trackStock) p.stock = round(p.stock + i.qty); });
+    Inventory.restore(o.mats);
     logAct(o.status === 'void' ? 'إلغاء فاتورة' : 'إرجاع فاتورة', '#' + o.no + ' — ' + reason);
     Store.saveNow(); Modal.closeAll(); App.refresh(); toast('تم إلغاء الفاتورة', 'warning');
   };
@@ -1639,8 +1646,10 @@ VIEWS.reports = (el) => {
 };
 const Rep = {
   stockAlert() {
+    const lowM = DB.materials.filter(m => m.min > 0 && m.stock <= m.min);
+    const matHtml = lowM.length ? `<div class="card p-4 border-rose-500/40 mb-3"><h3 class="font-bold mb-2 text-sm text-rose-300"><i class="fa-solid fa-triangle-exclamation"></i> مواد خام منخفضة</h3><div class="flex flex-wrap gap-2">${lowM.map(m => `<span class="chip bg-rose-500/15 border-rose-500/30 text-rose-200">${esc(m.name)}: ${m.stock} ${esc(m.unit)}</span>`).join('')}</div></div>` : '';
     const low = DB.products.filter(p => p.trackStock && p.stock <= S().lowStockAlert);
-    return low.length ? `<div class="card p-4 border-rose-500/40"><h3 class="font-bold mb-2 text-sm text-rose-300"><i class="fa-solid fa-triangle-exclamation"></i> أصناف مخزونها منخفض</h3><div class="flex flex-wrap gap-2">${low.map(p => `<span class="chip bg-rose-500/15 border-rose-500/30 text-rose-200">${esc(p.name)}: ${p.stock}</span>`).join('')}</div></div>` : '';
+    return matHtml + (low.length ? `<div class="card p-4 border-rose-500/40"><h3 class="font-bold mb-2 text-sm text-rose-300"><i class="fa-solid fa-triangle-exclamation"></i> أصناف مخزونها منخفض</h3><div class="flex flex-wrap gap-2">${low.map(p => `<span class="chip bg-rose-500/15 border-rose-500/30 text-rose-200">${esc(p.name)}: ${p.stock}</span>`).join('')}</div></div>` : '');
   },
   exportProducts() {
     const r = reportData();
@@ -1689,7 +1698,7 @@ VIEWS.products = (el) => {
     <div class="card flex-1 overflow-auto"><table class="tbl"><thead><tr><th></th><th>الكود</th><th>الاسم</th><th>القسم</th><th>السعر</th><th>التكلفة</th><th>المخزون</th><th>الحالة</th><th></th></tr></thead><tbody>
     ${list.map(p => `<tr><td>${p.image ? `<img src="${p.image}" class="w-9 h-9 rounded-lg object-cover">` : `<span class="w-9 h-9 rounded-lg bg-gradient-to-br ${p.color} flex items-center justify-center text-sky-200"><i class="fa-solid ${p.icon}"></i></span>`}</td>
       <td class="num text-xs">${esc(p.code)}</td><td class="font-bold">${esc(p.name)}</td><td class="text-xs">${esc(catName(p.catId))}</td>
-      <td class="num font-bold text-emerald-400">${money(p.price, false)}</td><td class="num text-xs text-slate-400">${money(p.cost || 0, false)}</td>
+      <td class="num font-bold text-emerald-400">${money(p.price, false)}</td><td class="num text-xs text-slate-400">${money(unitCost(p), false)}</td>
       <td class="num text-xs">${p.trackStock ? `<button onclick="Prod.stock('${p.id}')" class="chip ${p.stock <= S().lowStockAlert ? 'bg-rose-500/15 text-rose-300 border-rose-500/30' : 'bg-slate-800 border-slate-700 text-slate-200'}">${p.stock} <i class="fa-solid fa-plus text-[9px]"></i></button>` : '<span class="text-slate-600">—</span>'}</td>
       <td><label class="switch"><input type="checkbox" ${p.active ? 'checked' : ''} onchange="Prod.toggle('${p.id}',this.checked)"><span></span></label></td>
       <td class="whitespace-nowrap"><button class="text-sky-300 hover:text-white px-1" onclick="Prod.edit('${p.id}')"><i class="fa-solid fa-pen"></i></button>
@@ -1726,6 +1735,8 @@ Object.assign(Prod, {
         <div><input class="inp num" type="number" step="any" value="${p.stock}" data-stock placeholder="الكمية الحالية"></div>
         <label class="flex items-center justify-between gap-2 card p-2.5 text-sm col-span-2"><span>يُرسل إلى المطبخ (يطبع في تذكرة المطبخ)</span><label class="switch"><input type="checkbox" ${p.kitchen !== false ? 'checked' : ''} data-kitchen><span></span></label></label>
       </div>
+      <div class="mt-3 card p-3"><div class="flex items-center justify-between mb-1"><span class="lbl !mb-0"><i class="fa-solid fa-flask text-teal-400"></i> الوصفة (المواد الخام لكل حصة)</span><button type="button" class="btn-ghost text-xs py-1" data-addrec><i class="fa-solid fa-plus"></i> مادة</button></div>
+        <p class="text-[11px] text-slate-500 mb-2">عند البيع تُخصم المواد تلقائياً من المخزون، وتُحسب تكلفة الصنف منها.</p><div data-rec class="space-y-1.5"></div><div class="text-xs text-slate-400 mt-2" data-reccost></div></div>
       <label class="lbl mt-3">الأيقونة</label>
       <div class="grid grid-cols-10 gap-1 max-h-28 overflow-y-auto card p-2" data-icons>${ICONS.map(i => `<button data-i="${i}" class="aspect-square rounded-lg text-base ${i === icon ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}"><i class="fa-solid ${i}"></i></button>`).join('')}</div>
       <label class="lbl mt-3">اللون</label>
@@ -1736,6 +1747,22 @@ Object.assign(Prod, {
         <button class="btn-ghost text-xs text-rose-300" data-noimg>إزالة</button></div>
       <div class="flex gap-2 justify-end mt-5"><button class="btn-ghost" data-close>إلغاء</button><button class="btn-primary" data-ok><i class="fa-solid fa-floppy-disk"></i> حفظ</button></div>`,
       { title: id ? 'تعديل صنف' : 'صنف جديد', icon: 'fa-burger', size: 'max-w-2xl' });
+    const recipe = (p.recipe || []).map(r => Object.assign({}, r));
+    const drawRec = () => {
+      const box = $('[data-rec]', w);
+      box.innerHTML = recipe.length ? recipe.map((r, i) => { const m = matOf(r.mid); return `<div class="flex items-center gap-2"><select class="inp py-1.5 text-sm flex-1" data-rm="${i}"><option value="">— اختر مادة —</option>${DB.materials.map(x => `<option value="${x.id}" ${x.id === r.mid ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select><input class="inp num py-1.5 w-24 text-sm" type="number" step="any" min="0" value="${r.qty || ''}" placeholder="الكمية" data-rq="${i}"><span class="text-xs text-slate-400 w-12">${m ? esc(m.unit) : ''}</span><button type="button" class="text-slate-500 hover:text-rose-400" data-rx="${i}"><i class="fa-solid fa-xmark"></i></button></div>`; }).join('') : `<p class="text-[11px] text-slate-500">${DB.materials.length ? 'بدون وصفة — يُستخدم حقل التكلفة اليدوي.' : 'أضف مواد خام من صفحة «المخزون» أولاً لتتمكن من بناء وصفة.'}</p>`;
+      $$('[data-rm]', box).forEach(s => s.onchange = () => { recipe[+s.dataset.rm].mid = s.value; drawRec(); });
+      $$('[data-rq]', box).forEach(s => s.oninput = () => { recipe[+s.dataset.rq].qty = parseFloat(s.value) || 0; upd(); });
+      $$('[data-rx]', box).forEach(s => s.onclick = () => { recipe.splice(+s.dataset.rx, 1); drawRec(); });
+      upd();
+    };
+    const upd = () => {
+      const c = recipe.reduce((a, r) => { const m = matOf(r.mid); return a + (m ? m.cost * (r.qty || 0) : 0); }, 0), on = recipe.some(r => r.mid && r.qty > 0);
+      $('[data-reccost]', w).textContent = on ? 'تكلفة الحصة من الوصفة: ' + money(c) : '';
+      const ci = $('[data-cost]', w); ci.disabled = on; if (on) ci.value = round(c);
+    };
+    $('[data-addrec]', w).onclick = () => { if (!DB.materials.length) return toast('أضف مواد خام من صفحة المخزون أولاً', 'warning'); recipe.push({ mid: '', qty: 0 }); drawRec(); };
+    drawRec();
     $$('[data-i]', w).forEach(b => b.onclick = () => { icon = b.dataset.i; $$('[data-i]', w).forEach(x => x.className = 'aspect-square rounded-lg text-base ' + (x.dataset.i === icon ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700')); });
     $$('[data-g]', w).forEach(b => b.onclick = () => { color = b.dataset.g; $$('[data-g]', w).forEach(x => x.classList.toggle('border-white', x.dataset.g === color)); $$('[data-g]', w).forEach(x => x.classList.toggle('border-transparent', x.dataset.g !== color)); });
     $('[data-img]', w).onchange = async e => { const f = e.target.files[0]; if (!f) return; image = await resizeImage(await readFileAs(f, 'url'), 240); $('[data-prev]', w).innerHTML = `<img src="${image}" class="w-full h-full object-cover">`; };
@@ -1745,7 +1772,8 @@ Object.assign(Prod, {
       if (!name) return toast('أدخل اسم الصنف', 'error');
       if (isNaN(price) || price < 0) return toast('أدخل سعراً صحيحاً', 'error');
       if (code && DB.products.some(x => x.code === code && x.id !== id)) return toast('الكود مستخدم لصنف آخر', 'error');
-      const data = { name, code, price, cost: parseFloat($('[data-cost]', w).value) || 0, catId: $('[data-cat]', w).value, icon, color, image, trackStock: $('[data-track]', w).checked, stock: parseFloat($('[data-stock]', w).value) || 0, kitchen: $('[data-kitchen]', w).checked };
+      const rec = recipe.filter(r => r.mid && r.qty > 0);
+      const data = { recipe: rec, name, code, price, cost: rec.length ? 0 : (parseFloat($('[data-cost]', w).value) || 0), catId: $('[data-cat]', w).value, icon, color, image, trackStock: $('[data-track]', w).checked, stock: parseFloat($('[data-stock]', w).value) || 0, kitchen: $('[data-kitchen]', w).checked };
       if (id) { if (p.price !== price) logAct('تغيير سعر صنف', `${name}: ${p.price} → ${price}`); Object.assign(p, data); }
       else DB.products.push(Object.assign({ id: uid(), active: true }, data));
       Store.save(); Modal.close(); App.refresh(); toast('تم الحفظ', 'success');
@@ -1803,6 +1831,113 @@ Object.assign(Prod, {
     };
   }
 });
+
+/* ---------------- Raw materials, recipes, purchases ---------------- */
+const r3 = n => Math.round((+n || 0) * 1000) / 1000;
+const r4 = n => Math.round((+n || 0) * 10000) / 10000;
+const UNITS = ['جرام', 'كجم', 'مل', 'لتر', 'حبة', 'علبة', 'كيس', 'ربطة'];
+const matOf = id => DB.materials.find(x => x.id === id);
+const recipeCost = p => r4((p.recipe || []).reduce((a, r) => { const m = matOf(r.mid); return a + (m ? m.cost * r.qty : 0); }, 0));
+const unitCost = p => (p.recipe && p.recipe.length) ? recipeCost(p) : (p.cost || 0);
+const Inventory = {
+  tab: 'materials',
+  /** deduct recipe ingredients for sold items; returns what was consumed (so a refund can put it back) */
+  consume(items) {
+    const used = {};
+    items.forEach(i => { const p = DB.products.find(x => x.id === i.pid); if (p && p.recipe) p.recipe.forEach(r => { used[r.mid] = (used[r.mid] || 0) + r.qty * i.qty; }); });
+    const list = [], low = [];
+    Object.keys(used).forEach(mid => { const m = matOf(mid); if (!m) return; m.stock = r3(m.stock - used[mid]); list.push({ mid, qty: r3(used[mid]) }); if (m.min > 0 && m.stock <= m.min) low.push(m.name); });
+    if (low.length) setTimeout(() => toast('مواد منخفضة: ' + low.join('، '), 'warning'), 600);
+    return list;
+  },
+  restore(list) { (list || []).forEach(u => { const m = matOf(u.mid); if (m) m.stock = r3(m.stock + u.qty); }); },
+  warn(p, qty) {
+    (p.recipe || []).forEach(r => { const m = matOf(r.mid); if (m && m.stock - r.qty * qty < 0) toast(`تنبيه: مادة "${m.name}" لا تكفي (${m.stock} ${m.unit})`, 'warning'); });
+  },
+  usedBy(mid) { return DB.products.filter(p => (p.recipe || []).some(r => r.mid === mid)); },
+  editMat(id) {
+    const m = id ? matOf(id) : { name: '', unit: 'جرام', stock: 0, cost: '', min: 0 };
+    const w = Modal.open(`<div class="grid grid-cols-2 gap-3">
+      <div class="col-span-2"><label class="lbl">اسم المادة *</label><input class="inp" value="${esc(m.name)}" data-n autofocus></div>
+      <div><label class="lbl">وحدة القياس</label><input class="inp" list="unitsList" value="${esc(m.unit)}" data-u><datalist id="unitsList">${UNITS.map(u => `<option>${u}</option>`).join('')}</datalist></div>
+      <div><label class="lbl">تكلفة الوحدة الواحدة</label><input class="inp num" type="number" step="any" value="${m.cost}" data-c placeholder="مثال: 0.012 للجرام"></div>
+      <div><label class="lbl">${id ? 'الرصيد الحالي (للجرد استخدم زر جرد)' : 'الرصيد الافتتاحي'}</label><input class="inp num" type="number" step="any" value="${m.stock}" data-s ${id ? 'disabled' : ''}></div>
+      <div><label class="lbl">حد التنبيه (الحد الأدنى)</label><input class="inp num" type="number" step="any" value="${m.min}" data-m></div></div>
+      <div class="flex gap-2 justify-end mt-5"><button class="btn-ghost" data-close>إلغاء</button><button class="btn-primary" data-ok>حفظ</button></div>`, { title: id ? 'تعديل مادة خام' : 'مادة خام جديدة', icon: 'fa-flask', size: 'max-w-md' });
+    $('[data-ok]', w).onclick = () => {
+      const name = $('[data-n]', w).value.trim(), unit = $('[data-u]', w).value.trim() || 'وحدة';
+      if (!name) return toast('أدخل اسم المادة', 'error');
+      if (DB.materials.some(x => x.name === name && x.id !== id)) return toast('الاسم مستخدم لمادة أخرى', 'error');
+      const data = { name, unit, cost: r4(parseFloat($('[data-c]', w).value) || 0), min: parseFloat($('[data-m]', w).value) || 0 };
+      if (id) Object.assign(m, data); else DB.materials.push(Object.assign({ id: uid(), stock: r3(parseFloat($('[data-s]', w).value) || 0) }, data));
+      logAct(id ? 'تعديل مادة خام' : 'إضافة مادة خام', name); Store.save(); Modal.close(); App.refresh();
+    };
+  },
+  async count(id) {
+    const m = matOf(id);
+    const v = await promptBox('جرد — ' + m.name, { type: 'number', label: `الرصيد في النظام: ${m.stock} ${esc(m.unit)}. أدخل الكمية الفعلية الموجودة` });
+    if (v === null || isNaN(parseFloat(v))) return;
+    const nv = r3(parseFloat(v)); logAct('جرد مخزون', `${m.name}: ${m.stock} → ${nv}`); m.stock = nv; Store.save(); App.refresh();
+  },
+  async delMat(id) {
+    const m = matOf(id), used = this.usedBy(id);
+    if (used.length) return toast('المادة مستخدمة في وصفة: ' + used.map(p => p.name).slice(0, 3).join('، '), 'error');
+    if (!(await confirmBox(`حذف المادة "${esc(m.name)}"؟`, { danger: true, ok: 'حذف' }))) return;
+    DB.materials = DB.materials.filter(x => x.id !== id); logAct('حذف مادة خام', m.name); Store.save(); App.refresh();
+  },
+  purchase() {
+    if (!DB.materials.length) return toast('أضف مادة خام أولاً', 'warning');
+    const lines = [{ mid: DB.materials[0].id, qty: '', price: '' }];
+    const w = Modal.open(`<div class="space-y-3"><div><label class="lbl">المورّد (اختياري)</label><input class="inp" data-sup placeholder="اسم المورّد"></div>
+      <div><div class="flex items-center justify-between mb-1"><span class="lbl !mb-0">الأصناف المشتراة</span><button type="button" class="btn-ghost text-xs py-1" data-add><i class="fa-solid fa-plus"></i> سطر</button></div><div data-lines class="space-y-1.5"></div></div>
+      <div class="flex justify-between items-center card p-2.5"><span class="text-sm text-slate-400">إجمالي الفاتورة</span><b class="num text-xl text-emerald-400" data-tot>0</b></div>
+      <label class="flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" data-exp checked> تسجيلها كمصروف مدفوع من درج الكاشير</label></div>
+      <div class="flex gap-2 justify-end mt-5"><button class="btn-ghost" data-close>إلغاء</button><button class="btn-primary" data-ok>حفظ الشراء</button></div>`, { title: 'فاتورة شراء مواد خام', icon: 'fa-cart-flatbed', size: 'max-w-2xl' });
+    const tot = () => round(lines.reduce((a, l) => a + (parseFloat(l.qty) || 0) * (parseFloat(l.price) || 0), 0));
+    const draw = () => {
+      const box = $('[data-lines]', w);
+      box.innerHTML = lines.map((l, i) => { const m = matOf(l.mid); return `<div class="flex items-center gap-2"><select class="inp py-1.5 text-sm flex-1" data-lm="${i}">${DB.materials.map(x => `<option value="${x.id}" ${x.id === l.mid ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>
+        <input class="inp num py-1.5 w-24 text-sm" type="number" step="any" min="0" placeholder="الكمية" value="${l.qty}" data-lq="${i}"><span class="text-xs text-slate-400 w-10">${m ? esc(m.unit) : ''}</span>
+        <input class="inp num py-1.5 w-24 text-sm" type="number" step="any" min="0" placeholder="سعر الوحدة" value="${l.price}" data-lp="${i}"><button type="button" class="text-slate-500 hover:text-rose-400" data-lx="${i}"><i class="fa-solid fa-xmark"></i></button></div>`; }).join('');
+      $$('[data-lm]', box).forEach(s => s.onchange = () => { lines[+s.dataset.lm].mid = s.value; const m = matOf(s.value); if (m && !lines[+s.dataset.lm].price) lines[+s.dataset.lm].price = m.cost || ''; draw(); });
+      $$('[data-lq]', box).forEach(s => s.oninput = () => { lines[+s.dataset.lq].qty = s.value; $('[data-tot]', w).textContent = money(tot(), false); });
+      $$('[data-lp]', box).forEach(s => s.oninput = () => { lines[+s.dataset.lp].price = s.value; $('[data-tot]', w).textContent = money(tot(), false); });
+      $$('[data-lx]', box).forEach(s => s.onclick = () => { if (lines.length > 1) { lines.splice(+s.dataset.lx, 1); draw(); } });
+      $('[data-tot]', w).textContent = money(tot(), false);
+    };
+    $('[data-add]', w).onclick = () => { lines.push({ mid: DB.materials[0].id, qty: '', price: '' }); draw(); };
+    draw();
+    $('[data-ok]', w).onclick = () => {
+      const ok = lines.filter(l => parseFloat(l.qty) > 0);
+      if (!ok.length) return toast('أدخل كمية لسطر واحد على الأقل', 'error');
+      if (ok.some(l => !(parseFloat(l.price) >= 0) || l.price === '')) return toast('أدخل سعر الوحدة لكل سطر', 'error');
+      const total = round(ok.reduce((a, l) => a + parseFloat(l.qty) * parseFloat(l.price), 0)), asExp = $('[data-exp]', w).checked;
+      if (asExp && total > 0 && !Shift.ensure()) return;
+      const sup = $('[data-sup]', w).value.trim(), rec = [];
+      ok.forEach(l => {
+        const m = matOf(l.mid), q = parseFloat(l.qty), pr = parseFloat(l.price);
+        m.cost = m.stock > 0 ? r4((m.stock * m.cost + q * pr) / (m.stock + q)) : r4(pr);   // weighted average
+        m.stock = r3(m.stock + q); rec.push({ mid: m.id, name: m.name, unit: m.unit, qty: q, price: pr });
+      });
+      DB.purchases.unshift({ id: uid(), date: Date.now(), supplier: sup, lines: rec, total, userName: App.user.name });
+      if (asExp && total > 0) { const sh = Shift.current(); DB.expenses.push({ id: uid(), date: Date.now(), amount: total, cat: 'مشتريات مطبخ', desc: 'شراء مواد خام' + (sup ? ' — ' + sup : ''), userName: App.user.name, shiftId: sh ? sh.id : null }); }
+      logAct('شراء مواد خام', money(total) + (sup ? ' — ' + sup : '')); Store.save(); Modal.close(); this.tab = 'materials'; App.refresh(); toast('تم حفظ الشراء وتحديث المخزون', 'success');
+    };
+  }
+};
+VIEWS.inventory = (el) => {
+  const mats = DB.materials, low = mats.filter(m => m.min > 0 && m.stock <= m.min), val = round(mats.reduce((a, m) => a + Math.max(0, m.stock) * m.cost, 0));
+  const tabs = [['materials', 'المواد الخام'], ['purchases', 'سجل المشتريات']].map(t => `<button onclick="Inventory.tab='${t[0]}';App.refresh()" class="px-4 py-1.5 rounded-lg text-sm font-bold ${Inventory.tab === t[0] ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400'}">${t[1]}</button>`).join('');
+  el.innerHTML = pageHead('المخزون والمشتريات', 'fa-boxes-stacked', `<button class="btn-ghost" onclick="Inventory.purchase()"><i class="fa-solid fa-cart-flatbed"></i> فاتورة شراء</button><button class="btn-primary" onclick="Inventory.editMat()"><i class="fa-solid fa-plus"></i> مادة خام</button>`) +
+    `<div class="grid grid-cols-3 gap-3 mb-3">${kpi('عدد المواد', mats.length, 'fa-flask', 'text-teal-300')}${kpi('قيمة المخزون', money(val), 'fa-coins', 'text-emerald-300')}${kpi('مواد منخفضة', low.length, 'fa-triangle-exclamation', low.length ? 'text-rose-300' : 'text-slate-300')}</div>
+    <div class="flex gap-2 mb-3">${tabs}</div>` +
+    (Inventory.tab === 'materials' ? `<div class="card overflow-auto"><table class="tbl"><thead><tr><th>المادة</th><th>الوحدة</th><th>الرصيد</th><th>تكلفة الوحدة</th><th>الحد الأدنى</th><th>القيمة</th><th></th></tr></thead><tbody>
+      ${mats.map(m => { const lw = m.min > 0 && m.stock <= m.min; return `<tr><td class="font-bold">${esc(m.name)}</td><td class="text-xs text-slate-400">${esc(m.unit)}</td>
+        <td><span class="chip num ${lw ? 'bg-rose-500/15 text-rose-300 border-rose-500/30' : 'bg-slate-800 border-slate-700 text-slate-200'}">${m.stock}</span></td><td class="num text-xs">${m.cost}</td><td class="num text-xs text-slate-400">${m.min || '-'}</td><td class="num text-xs">${money(Math.max(0, m.stock) * m.cost, false)}</td>
+        <td class="whitespace-nowrap"><button class="btn-ghost text-xs py-1" onclick="Inventory.count('${m.id}')">جرد</button> <button class="text-slate-400 hover:text-white px-1" onclick="Inventory.editMat('${m.id}')"><i class="fa-solid fa-pen"></i></button> <button class="text-slate-500 hover:text-rose-400 px-1" onclick="Inventory.delMat('${m.id}')"><i class="fa-solid fa-trash"></i></button></td></tr>`; }).join('') || '<tr><td colspan="7" class="text-center text-slate-500 py-8">لا توجد مواد خام. أضف مادة ثم اربطها بالأصناف من «تعديل صنف ← الوصفة».</td></tr>'}</tbody></table></div>`
+      : `<div class="card overflow-auto"><table class="tbl"><thead><tr><th>التاريخ</th><th>المورّد</th><th>الأصناف</th><th>الإجمالي</th><th>المستخدم</th></tr></thead><tbody>
+      ${DB.purchases.map(p => `<tr><td class="num text-xs">${fmtDT(p.date)}</td><td>${esc(p.supplier || '-')}</td><td class="text-xs text-slate-300">${p.lines.map(l => esc(l.name) + ' × ' + l.qty + ' ' + esc(l.unit)).join('، ')}</td><td class="num font-bold text-emerald-400">${money(p.total)}</td><td class="text-xs">${esc(p.userName || '')}</td></tr>`).join('') || '<tr><td colspan="5" class="text-center text-slate-500 py-8">لا توجد مشتريات مسجلة</td></tr>'}</tbody></table></div>`);
+};
 
 /* ---------------- Users ---------------- */
 VIEWS.users = (el) => {
