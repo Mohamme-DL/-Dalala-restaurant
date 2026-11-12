@@ -235,7 +235,11 @@ const Net = {
     const box = $('#netInfo'); if (!box || !window.dalalaNet) return;
     this.modeFields();
     if (NETCFG.mode !== 'host') { box.innerHTML = ''; return; }
-    const i = await window.dalalaNet.info(); const clients = (i.server && i.server.clients) || [];
+    let i = null, ierr = '';
+    try { i = await Promise.race([window.dalalaNet.info(), new Promise(r => setTimeout(() => r(null), 6000))]); } catch (e) { ierr = String(e); }
+    if (!i) { i = { ips: [], port: NETCFG.port, key: NETCFG.key, server: null, serverError: ierr || 'تعذّر قراءة حالة الخادم من البرنامج — مفتاح الربط والمنفذ أعلاه من الإعدادات المحفوظة' }; }
+    if (!i.key) i.key = NETCFG.key; if (!i.port) i.port = NETCFG.port;
+    const clients = (i.server && i.server.clients) || [];
     box.innerHTML = `<div class="grid grid-cols-2 md:grid-cols-4 gap-3 bg-slate-800/50 rounded-xl p-3 text-xs">
         <div><div class="text-slate-400">عنوان هذا الجهاز</div><b class="num text-sm" dir="ltr">${esc((i.ips || []).join(' / ') || '—')}</b></div>
         <div><div class="text-slate-400">المنفذ</div><b class="num text-sm">${esc(i.port)}</b></div>
