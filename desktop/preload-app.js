@@ -9,7 +9,7 @@ contextBridge.exposeInMainWorld('dalalaNet', Object.freeze({
   set: cfg => ipcRenderer.invoke('net:set', cfg),
 }));
 // Printing on a chosen printer (receipts, A4, labels) and automatic backup files
-contextBridge.exposeInMainWorld('dalalaPrint', Object.freeze({ list: () => ipcRenderer.invoke('print:list'), run: o => ipcRenderer.invoke('print:run', o) }));
+contextBridge.exposeInMainWorld('dalalaPrint', Object.freeze({ list: () => ipcRenderer.invoke('print:list'), run: o => ipcRenderer.invoke('print:run', o), printers: () => ipcRenderer.invoke('print:list'), print: (html, o) => ipcRenderer.invoke('print:html', html, o) }));
 contextBridge.exposeInMainWorld('dalalaBackup', Object.freeze({
   save: (name, json) => ipcRenderer.invoke('bk:save', name, json), list: () => ipcRenderer.invoke('bk:list'),
   read: name => ipcRenderer.invoke('bk:read', name), open: () => ipcRenderer.invoke('bk:open'),
