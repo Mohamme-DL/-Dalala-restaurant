@@ -140,7 +140,8 @@ function global:Start-Servers($Net) {
         if (-not $Net.key) { $Net.key = [DalalaRestaurant.NetServer]::NewKey(); Save-NetConfig $Net }
         $dir = Join-Path $global:DataDir 'shared'
         $global:NetSrv = [DalalaRestaurant.NetServer]::new([int]$Net.port, [string]$Net.key, $dir, $null)
-        try { $global:NetSrv.Listen() } catch {
+        try { $global:NetSrv.Listen(); Write-AppError 'net server' ('listening on port ' + $Net.port) } catch {
+            Write-AppError 'net server FAILED' ($_ | Out-String)
             $global:NetErr = $_.Exception.Message
             [Windows.Forms.MessageBox]::Show(('تعذر تشغيل خادم الشبكة على المنفذ ' + $Net.port + [Environment]::NewLine + $_.Exception.Message), $global:AppTitle, 'OK', 'Warning') | Out-Null
             $global:NetSrv = $null
@@ -267,7 +268,7 @@ function global:Start-WebApp {
     $props = [Microsoft.Web.WebView2.WinForms.CoreWebView2CreationProperties]::new()
     $props.UserDataFolder = Join-Path $global:DataDir 'webview2-data'
     # الواجهة محلية فقط: نمنع تمرير الاتصال عبر أي وكيل (Proxy/VPN) لأنه قد يعيد تعيين الاتصال
-    $props.AdditionalBrowserArguments = '--no-proxy-server --allow-running-insecure-content'
+    $props.AdditionalBrowserArguments = '--no-proxy-server --allow-running-insecure-content --disable-features=LocalNetworkAccessChecks,BlockInsecurePrivateNetworkRequests,PrivateNetworkAccessSendPreflights,PrivateNetworkAccessRespectPreflightResults'
     $wv.CreationProperties = $props
     $form.Controls.Add($wv); $global:WebView = $wv
     $shim = Get-PageShim $net
