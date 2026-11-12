@@ -984,10 +984,27 @@ const POS = {
       </div>
       <label class="lbl mt-3">ملاحظة للمطبخ</label>
       <input class="inp" value="${esc(it.note)}" placeholder="مثال: بدون بصل، سكر خفيف..." data-n>
-      <div class="flex flex-wrap gap-1.5 mt-2">${['بدون سكر', 'سكر خفيف', 'بدون بصل', 'حار', 'بدون مايونيز', 'إضافي جبن', 'مثلج', 'تيك أوي'].map(t => `<button class="chip bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700" data-tag="${t}">${t}</button>`).join('')}</div>
+      <div class="flex items-center justify-between mt-3"><span class="text-xs text-slate-400">ملاحظات جاهزة</span><button class="text-xs text-sky-400 hover:text-sky-300" data-manage></button></div>
+      <div class="flex flex-wrap gap-1.5 mt-1.5" data-tags></div>
       <div class="flex gap-2 justify-end mt-5"><button class="btn-ghost" data-close>إلغاء</button><button class="btn-primary" data-ok>حفظ</button></div>`,
       { title: it.name, icon: 'fa-pen-to-square', size: 'max-w-md' });
-    $$('[data-tag]', w).forEach(b => b.onclick = () => { const n = $('[data-n]', w); n.value = n.value ? n.value + '، ' + b.dataset.tag : b.dataset.tag; });
+    let manage = false;
+    const presets = () => { const st = S(); if (!Array.isArray(st.notePresets)) st.notePresets = ['بدون سكر', 'سكر خفيف', 'بدون بصل', 'حار', 'بدون مايونيز', 'إضافي جبن', 'مثلج', 'تيك أوي']; return st.notePresets; };
+    const paintTags = () => {
+      const box = $('[data-tags]', w), list = presets();
+      $('[data-manage]', w).innerHTML = manage ? '<i class="fa-solid fa-check"></i> تم' : '<i class="fa-solid fa-pen"></i> تعديل الجاهز';
+      box.innerHTML = list.map((t, i) => manage
+        ? `<span class="chip bg-slate-800 border-slate-700 text-slate-200 inline-flex items-center gap-2"><button data-ren="${i}" title="تعديل">${esc(t)} <i class="fa-solid fa-pen text-[10px] text-sky-400"></i></button><button data-del="${i}" title="حذف" class="text-rose-400 hover:text-rose-300"><i class="fa-solid fa-xmark"></i></button></span>`
+        : `<button class="chip bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700" data-tag="${i}">${esc(t)}</button>`).join('')
+        + (manage ? '<button class="chip bg-sky-900/40 border-sky-700 text-sky-300" data-add><i class="fa-solid fa-plus"></i> إضافة</button>' : '');
+      $$('[data-tag]', box).forEach(b => b.onclick = () => { const t = presets()[+b.dataset.tag], n = $('[data-n]', w); n.value = n.value ? n.value + '، ' + t : t; });
+      $$('[data-del]', box).forEach(b => b.onclick = () => { presets().splice(+b.dataset.del, 1); Store.save(); paintTags(); });
+      $$('[data-ren]', box).forEach(b => b.onclick = async () => { const i = +b.dataset.ren, v = await promptBox('تعديل الملاحظة', { value: presets()[i] }); if (v && v.trim()) { presets()[i] = v.trim(); Store.save(); } paintTags(); });
+      const add = $('[data-add]', box);
+      if (add) add.onclick = async () => { const v = await promptBox('ملاحظة جاهزة جديدة', { value: '' }); if (v && v.trim()) { presets().push(v.trim()); Store.save(); } paintTags(); };
+    };
+    $('[data-manage]', w).onclick = () => { manage = !manage; paintTags(); };
+    paintTags();
     $('[data-ok]', w).onclick = async () => {
       const q = Math.max(1, parseInt($('[data-q]', w).value) || 1), p = parseFloat($('[data-p]', w).value);
       const note = $('[data-n]', w).value.trim();
