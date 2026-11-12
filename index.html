@@ -224,7 +224,7 @@ function defaultData() {
       kitchenCopies: 1, receiptCopies: 1, silentPrint: false, printerName: '', kitchenPrinter: '',
       mode: 'restaurant', modeChosen: false, quickPopup: false,
       requireShift: true, nextInvoice: 1001, dailyNo: { day: '', n: 0 }, showImages: true, sound: true,
-      lowStockAlert: 5
+      lowStockAlert: 5, autoBackup: true
     },
     users: [
       { id: 'u1', name: 'المدير', pin: '1234', role: 'admin', active: true },
@@ -406,16 +406,72 @@ function resizeImage(dataUrl, max = 240) {
 /* =====================================================================
    App shell: navigation, login, shifts, shortcuts
    ===================================================================== */
+/* ---------------- Per-user permissions ---------------- */
+const PERMS = [
+  { g: 'الصفحات', k: 'tables', n: 'شاشة الطاولات', d: true },
+  { g: 'الصفحات', k: 'kitchen', n: 'شاشة المطبخ', d: true },
+  { g: 'الصفحات', k: 'invoices', n: 'سجل الفواتير', d: true },
+  { g: 'الصفحات', k: 'expenses', n: 'المصروفات', d: true },
+  { g: 'الصفحات', k: 'reports', n: 'التقارير', d: false },
+  { g: 'الصفحات', k: 'products', n: 'الأصناف والتصنيفات', d: false },
+  { g: 'الصفحات', k: 'settings', n: 'الإعدادات', d: false },
+  { g: 'البيع', k: 'discount', n: 'تطبيق خصم', d: false },
+  { g: 'البيع', k: 'editPrice', n: 'تعديل سعر صنف', d: false },
+  { g: 'البيع', k: 'voidSent', n: 'تقليل/حذف صنف أُرسل للمطبخ', d: false },
+  { g: 'البيع', k: 'cancelOrder', n: 'إلغاء طلب أُرسل للمطبخ', d: false },
+  { g: 'البيع', k: 'splitMove', n: 'نقل / دمج الطاولات وتقسيم الحساب', d: true },
+  { g: 'المبيعات والمصروفات', k: 'refund', n: 'إلغاء أو إرجاع فاتورة', d: false },
+  { g: 'المبيعات والمصروفات', k: 'allInvoices', n: 'عرض كل الفواتير (وليس الوردية فقط)', d: false },
+  { g: 'المبيعات والمصروفات', k: 'allExpenses', n: 'عرض كل المصروفات', d: false },
+  { g: 'المبيعات والمصروفات', k: 'delExpense', n: 'حذف مصروف', d: false }
+];
+const Perm = {
+  def(k) { const p = PERMS.find(x => x.k === k); return p ? p.d : false; },
+  can(k) {
+    const u = App.user; if (!u) return false; if (u.role === 'admin') return true;
+    return u.perms && u.perms[k] !== undefined ? !!u.perms[k] : this.def(k);
+  },
+  /** allowed -> true; otherwise ask for the manager PIN (same behaviour as before for protected actions) */
+  ask(k, reason) { return this.can(k) ? Promise.resolve(true) : requireAdmin(reason); },
+  count(u) { return u.role === 'admin' ? PERMS.length : PERMS.filter(p => (u.perms && u.perms[p.k] !== undefined ? !!u.perms[p.k] : p.d)).length; }
+};
+
+/* ---------------- Automatic backup (Windows app) ---------------- */
+const Backup = {
+  bridge() { return window.dalalaBackup || null; },
+  available() { return !!this.bridge(); },
+  /** one file per day (latest state of the day), the desktop app keeps the last 30 */
+  async auto(force) {
+    const b = this.bridge(); if (!b || (!force && S().autoBackup === false) || !DB) return false;
+    try { Store.saveNow(); const ok = await b.save('auto-' + dayKey(Date.now()), JSON.stringify(DB)); if (ok) this.last = Date.now(); return ok; } catch (e) { return false; }
+  },
+  /** safety copy before a risky action (restore / wipe / reset) */
+  async snapshot(label) {
+    const b = this.bridge(); if (!b) return true;
+    const d = new Date();
+    try { return await b.save('pre-' + label + '-' + dayKey(d) + '-' + pad(d.getHours()) + pad(d.getMinutes()), JSON.stringify(DB)); } catch (e) { return false; }
+  },
+  start() { if (!this.bridge()) return; setTimeout(() => this.auto(), 4000); setInterval(() => this.auto(), 20 * 60 * 1000); },
+  label(n) { return n.startsWith('auto-') ? 'يومية تلقائية ' + n.slice(5) : n.startsWith('pre-') ? 'قبل ' + ({ restore: 'استعادة', clear: 'مسح المبيعات', reset: 'ضبط المصنع' }[n.split('-')[1]] || n.split('-')[1]) : n; },
+  async renderList(el) {
+    const b = this.bridge(); if (!el) return;
+    if (!b) { el.innerHTML = '<p class="text-[11px] text-slate-500">النسخ التلقائي يعمل في تطبيق ويندوز. في المتصفح نزّل نسخة يدوية بانتظام.</p>'; return; }
+    const list = (await b.list()) || [];
+    el.innerHTML = list.length ? list.slice(0, 12).map(x => `<div class="flex items-center justify-between gap-2 py-1.5 border-b border-slate-800 text-xs"><span class="min-w-0"><span class="block font-bold truncate">${esc(this.label(x.name))}</span><span class="text-slate-500 num">${fmtDate(x.mtime)} ${fmtTime(x.mtime)} — ${Math.round(x.size / 1024)} ك.ب</span></span><button class="btn-ghost text-xs py-1" data-bk="${esc(x.name)}">استعادة</button></div>`).join('') : '<p class="text-[11px] text-slate-500">لا توجد نسخ بعد — تُنشأ أول نسخة بعد فتح المنظومة بثوانٍ.</p>';
+    $$('[data-bk]', el).forEach(btn => btn.onclick = () => Cfg.restoreAuto(btn.dataset.bk));
+  }
+};
+
 const NAV = [
   { id: 'pos', name: 'البيع', icon: 'fa-cash-register' },
-  { id: 'tables', name: 'الطاولات', icon: 'fa-chair', full: true },
-  { id: 'kitchen', name: 'المطبخ', icon: 'fa-fire-burner', full: true },
-  { id: 'invoices', name: 'الفواتير', icon: 'fa-receipt' },
-  { id: 'expenses', name: 'المصروفات', icon: 'fa-wallet' },
-  { id: 'reports', name: 'التقارير', icon: 'fa-chart-pie', admin: true },
-  { id: 'products', name: 'الأصناف', icon: 'fa-burger', admin: true },
+  { id: 'tables', name: 'الطاولات', icon: 'fa-chair', full: true, perm: 'tables' },
+  { id: 'kitchen', name: 'المطبخ', icon: 'fa-fire-burner', full: true, perm: 'kitchen' },
+  { id: 'invoices', name: 'الفواتير', icon: 'fa-receipt', perm: 'invoices' },
+  { id: 'expenses', name: 'المصروفات', icon: 'fa-wallet', perm: 'expenses' },
+  { id: 'reports', name: 'التقارير', icon: 'fa-chart-pie', perm: 'reports' },
+  { id: 'products', name: 'الأصناف', icon: 'fa-burger', perm: 'products' },
   { id: 'users', name: 'المستخدمون', icon: 'fa-users', admin: true },
-  { id: 'settings', name: 'الإعدادات', icon: 'fa-gear', admin: true }
+  { id: 'settings', name: 'الإعدادات', icon: 'fa-gear', perm: 'settings' }
 ];
 const VIEWS = {}; // id -> render function
 
@@ -424,6 +480,7 @@ const App = {
 
   init() {
     DB = Store.load();
+    Backup.start();
     this.renderLogin();
     this.clock();
     setInterval(() => this.clock(), 1000);
@@ -497,7 +554,7 @@ const App = {
   lock() {
     if (Modal.isOpen) Modal.closeAll();
     logAct('تسجيل خروج');
-    this.user = null; Store.saveNow();
+    this.user = null; Store.saveNow(); Backup.auto();
     $('#app').classList.add('hidden');
     $('#loginScreen').classList.remove('hidden');
     this.renderLogin();
@@ -506,7 +563,7 @@ const App = {
 
   /* ---------- Navigation ---------- */
   renderNav() {
-    $('#sidebar').innerHTML = NAV.filter(n => (!n.admin || this.isAdmin()) && !(n.full && isQuick())).map(n => `
+    $('#sidebar').innerHTML = NAV.filter(n => (!n.admin || this.isAdmin()) && (!n.perm || Perm.can(n.perm)) && !(n.full && isQuick())).map(n => `
       <button class="nav-btn ${this.view === n.id ? 'active' : ''}" onclick="App.go('${n.id}')"><i class="fa-solid ${n.icon} text-lg"></i>${n.name}</button>`).join('') +
       `<div class="flex-1"></div>
        <button class="nav-btn" onclick="Shift.closeDialog()"><i class="fa-solid fa-cash-register text-lg text-amber-400"></i>إغلاق الوردية</button>
@@ -542,7 +599,7 @@ const App = {
   go(id) {
     const n = NAV.find(x => x.id === id);
     if (n && n.full && isQuick()) id = 'pos';
-    if (n && n.admin && !this.isAdmin()) return toast('لا تملك صلاحية الوصول', 'error');
+    if (n && ((n.admin && !this.isAdmin()) || (n.perm && !Perm.can(n.perm)))) return toast('لا تملك صلاحية الوصول', 'error');
     this.view = id;
     $$('.view').forEach(v => v.classList.toggle('hidden', v.dataset.view !== id));
     $('#cartFab').classList.toggle('on-pos', id === 'pos'); if (id !== 'pos') POS.toggleCart(false);
@@ -650,7 +707,7 @@ const Shift = {
     inp.oninput = upd; upd();
     $('[data-ok]', w).onclick = () => {
       Object.assign(sh, { status: 'closed', closeAt: Date.now(), closeCash: +inp.value || 0, expected: s.expected, diff: round((+inp.value || 0) - s.expected), note: $('[data-note]', w).value, closedBy: App.user.name, summary: s });
-      logAct('إغلاق وردية', 'فرق ' + money(sh.diff)); Store.saveNow();
+      logAct('إغلاق وردية', 'فرق ' + money(sh.diff)); Store.saveNow(); Backup.auto();
       Modal.close(); App.updateShiftBadge();
       Printer.shiftReport(sh);
       toast('تم إغلاق الوردية', 'success');
@@ -839,7 +896,7 @@ const POS = {
   async setQty(idx, v) {
     const it = this.cur.items[idx]; if (!it) return false;
     v = Math.max(1, Math.min(999, v));
-    if (v < it.sent && this.cur.id) { if (!(await requireAdmin('تقليل صنف أُرسل للمطبخ'))) return false; it.sent = Math.min(it.sent, v); logAct('تقليل صنف مرسل', it.name); }
+    if (v < it.sent && this.cur.id) { if (!(await Perm.ask('voidSent', 'تقليل صنف أُرسل للمطبخ'))) return false; it.sent = Math.min(it.sent, v); logAct('تقليل صنف مرسل', it.name); }
     it.qty = v; this.renderOrder(); this.renderGrid(); return true;
   },
   async numKey(k) {
@@ -894,14 +951,14 @@ const POS = {
   qtyInCart(pid) { return this.cur.items.filter(i => i.pid === pid).reduce((a, i) => a + i.qty, 0); },
   async qty(idx, d) {
     const it = this.cur.items[idx]; if (!it) return;
-    if (d < 0 && it.sent >= it.qty && this.cur.id) { if (!(await requireAdmin('تقليل صنف أُرسل للمطبخ'))) return; it.sent = Math.max(0, it.sent - 1); logAct('تقليل صنف مرسل', it.name); }
+    if (d < 0 && it.sent >= it.qty && this.cur.id) { if (!(await Perm.ask('voidSent', 'تقليل صنف أُرسل للمطبخ'))) return; it.sent = Math.max(0, it.sent - 1); logAct('تقليل صنف مرسل', it.name); }
     it.qty += d;
     if (it.qty <= 0) this.cur.items.splice(idx, 1);
     this.renderOrder(); this.renderGrid();
   },
   async remove(idx) {
     const it = this.cur.items[idx]; if (!it) return;
-    if (it.sent > 0 && this.cur.id) { if (!(await requireAdmin('حذف صنف أُرسل للمطبخ'))) return; logAct('حذف صنف مرسل', it.name + ' × ' + it.qty); }
+    if (it.sent > 0 && this.cur.id) { if (!(await Perm.ask('voidSent', 'حذف صنف أُرسل للمطبخ'))) return; logAct('حذف صنف مرسل', it.name + ' × ' + it.qty); }
     this.cur.items.splice(idx, 1); this.renderOrder(); this.renderGrid();
   },
   editItem(idx) {
@@ -909,7 +966,7 @@ const POS = {
     const w = Modal.open(`
       <div class="grid grid-cols-2 gap-3">
         <div><label class="lbl">الكمية</label><input class="inp num text-lg" type="number" min="1" step="1" value="${it.qty}" data-q></div>
-        <div><label class="lbl">السعر ${App.isAdmin() ? '' : '(يتطلب المدير)'}</label><input class="inp num text-lg" type="number" step="any" value="${it.price}" data-p></div>
+        <div><label class="lbl">السعر ${Perm.can('editPrice') ? '' : '(يتطلب المدير)'}</label><input class="inp num text-lg" type="number" step="any" value="${it.price}" data-p></div>
       </div>
       <label class="lbl mt-3">ملاحظة للمطبخ</label>
       <input class="inp" value="${esc(it.note)}" placeholder="مثال: بدون بصل، سكر خفيف..." data-n>
@@ -921,10 +978,10 @@ const POS = {
       const q = Math.max(1, parseInt($('[data-q]', w).value) || 1), p = parseFloat($('[data-p]', w).value);
       const note = $('[data-n]', w).value.trim();
       if (!isNaN(p) && p !== it.price) {
-        if (!(await requireAdmin('تعديل سعر صنف'))) return;
+        if (!(await Perm.ask('editPrice', 'تعديل سعر صنف'))) return;
         logAct('تعديل سعر', `${it.name}: ${it.price} → ${p}`); it.price = p;
       }
-      if (q < it.sent && this.cur.id && !(await requireAdmin('تقليل صنف أُرسل للمطبخ'))) return;
+      if (q < it.sent && this.cur.id && !(await Perm.ask('voidSent', 'تقليل صنف أُرسل للمطبخ'))) return;
       if (q < it.sent) it.sent = q;
       if (note !== it.note) { it.note = note; if (it.sent) { it.sent = 0; } }
       it.qty = q; Modal.closeAll(); this.renderOrder(); this.renderGrid();
@@ -950,7 +1007,7 @@ const POS = {
       const v = Math.max(0, parseFloat($('[data-v]', w).value) || 0);
       if (type === 'pct' && v > 100) return toast('النسبة لا تتجاوز 100%', 'error');
       Modal.close();
-      if (v > 0 && !App.isAdmin() && !(await requireAdmin('تطبيق خصم'))) return;
+      if (v > 0 && !(await Perm.ask('discount', 'تطبيق خصم'))) return;
       this.cur.discount = { type, value: v }; logAct('خصم', type === 'pct' ? v + '%' : money(v)); this.renderOrder();
     };
     $('[data-ok]', w).onclick = apply; $('[data-v]', w).onkeydown = e => e.key === 'Enter' && apply();
@@ -1020,7 +1077,7 @@ const POS = {
     if (!this.cur.items.length && !this.cur.id) return;
     if (this.cur.id) {
       if (!(await confirmBox(`إلغاء الطلب المحفوظ (${esc(orderLabel(this.cur))}) بالكامل؟`, { ok: 'إلغاء الطلب', danger: true }))) return;
-      if (this.cur.items.some(i => i.sent) && !(await requireAdmin('إلغاء طلب أُرسل للمطبخ'))) return;
+      if (this.cur.items.some(i => i.sent) && !(await Perm.ask('cancelOrder', 'إلغاء طلب أُرسل للمطبخ'))) return;
       DB.open = DB.open.filter(o => o.id !== this.cur.id);
       logAct('إلغاء طلب مفتوح', orderLabel(this.cur) + ' — ' + money(calcOrder(this.cur).total));
       Store.save();
@@ -1196,7 +1253,7 @@ VIEWS.tables = (el) => {
   el.innerHTML = pageHead('الطاولات والطلبات المفتوحة', 'fa-chair',
     `<span class="chip bg-emerald-500/15 text-emerald-300 border-emerald-500/30">متاحة: ${DB.tables.length - occ}</span>
      <span class="chip bg-rose-500/15 text-rose-300 border-rose-500/30">مشغولة: ${occ}</span>
-     ${App.isAdmin() ? `<button class="btn-ghost text-xs" onclick="App.go('settings');setTimeout(()=>$('#setTables')&&$('#setTables').scrollIntoView(),50)"><i class="fa-solid fa-gear"></i> إدارة الطاولات</button>` : ''}`) +
+     ${Perm.can('settings') ? `<button class="btn-ghost text-xs" onclick="App.go('settings');setTimeout(()=>$('#setTables')&&$('#setTables').scrollIntoView(),50)"><i class="fa-solid fa-gear"></i> إدارة الطاولات</button>` : ''}`) +
     zones.map(z => `<h3 class="text-sm font-bold text-slate-400 mb-2 mt-2">${esc(z)}</h3>
       <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 xl:grid-cols-8 gap-3 mb-5">${DB.tables.filter(t => (t.zone || 'الصالة') === z).map(t => {
       const o = busy[t.id];
@@ -1234,8 +1291,9 @@ POS.persistCur = function () {
   if (i >= 0) DB.open[i] = clone(o); else DB.open.push(clone(o));
   Store.save();
 };
-POS.moveMerge = function () {
+POS.moveMerge = async function () {
   const o = this.cur;
+  if (!(await Perm.ask('splitMove', 'نقل أو دمج الطاولات'))) return;
   if (o.type !== 'dine' || !o.tableId) return toast('النقل والدمج متاحان لطلبات الصالة المرتبطة بطاولة', 'warning');
   const busy = {}; DB.open.forEach(x => { if (x.type === 'dine' && x.tableId && x.id !== o.id) busy[x.tableId] = x; });
   const zones = [...new Set(DB.tables.map(t => t.zone || 'الصالة'))];
@@ -1271,9 +1329,10 @@ POS.moveMerge = function () {
     toast(`تم الدمج في طاولة ${tableName(tid)}`, 'success');
   });
 };
-POS.splitBill = function () {
+POS.splitBill = async function () {
   const o = this.cur;
   if (!o.items.length) return toast('الطلب فارغ', 'error');
+  if (!(await Perm.ask('splitMove', 'تقسيم الحساب'))) return;
   if (o.items.length === 1 && o.items[0].qty === 1) { /* only equal split makes sense */ }
   if (!Shift.ensure()) return;
   const take = o.items.map(() => 0);
@@ -1403,14 +1462,14 @@ const Inv = { q: '', status: 'all' };
 VIEWS.invoices = (el) => {
   const [a, b] = Range.bounds(), q = Inv.q.trim().toLowerCase();
   let list = DB.orders.filter(o => o.date >= a && o.date <= b);
-  if (!App.isAdmin()) { const sh = Shift.current(); list = list.filter(o => sh && o.shiftId === sh.id); }
+  if (!Perm.can('allInvoices')) { const sh = Shift.current(); list = list.filter(o => sh && o.shiftId === sh.id); }
   if (Inv.status !== 'all') list = list.filter(o => o.status === Inv.status);
   if (q) list = list.filter(o => String(o.no).includes(q) || (o.customer && ((o.customer.name || '').toLowerCase().includes(q) || (o.customer.phone || '').includes(q))) || (o.tableName || '').includes(q));
   list = list.slice().reverse();
   const paid = list.filter(o => o.status === 'paid');
   const methodName = { cash: 'نقدي', card: 'بطاقة', split: 'مختلط' };
   el.innerHTML = `<div class="h-full flex flex-col">` + pageHead('سجل الفواتير', 'fa-receipt', `<button class="btn-ghost text-xs" onclick="Inv.export()"><i class="fa-solid fa-file-csv"></i> تصدير Excel</button>`) +
-    `<div class="flex flex-wrap gap-2 items-center mb-3">${App.isAdmin() ? Range.html("App.refresh()") : '<span class="text-xs text-slate-400">فواتير الوردية الحالية</span>'}
+    `<div class="flex flex-wrap gap-2 items-center mb-3">${Perm.can('allInvoices') ? Range.html("App.refresh()") : '<span class="text-xs text-slate-400">فواتير الوردية الحالية</span>'}
       <input id="invQ" class="inp w-56 py-1.5 text-xs" placeholder="رقم الفاتورة / الزبون / الطاولة" value="${esc(Inv.q)}" oninput="Inv.q=this.value;clearTimeout(Inv._t);Inv._t=setTimeout(()=>{App.refresh();const i=$('#invQ');i.focus();i.setSelectionRange(i.value.length,i.value.length)},300)">
       <select class="inp w-auto py-1.5 text-xs" onchange="Inv.status=this.value;App.refresh()">${[['all', 'الكل'], ['paid', 'مدفوعة'], ['void', 'ملغاة'], ['refunded', 'مرتجعة']].map(([k, v]) => `<option value="${k}" ${Inv.status === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
       <span class="text-xs text-slate-400 mr-auto">العدد: <b class="num text-slate-200">${paid.length}</b> — المجموع: <b class="num text-emerald-400">${money(paid.reduce((s, o) => s + o.total, 0))}</b></span></div>
@@ -1448,7 +1507,7 @@ Inv.view = function (id) {
   $('[data-print]', w).onclick = () => Printer.receipt(Object.assign({}, o, { copy: true }));
   const v = $('[data-void]', w);
   if (v) v.onclick = async () => {
-    if (!(await requireAdmin('إلغاء أو إرجاع فاتورة'))) return;
+    if (!(await Perm.ask('refund', 'إلغاء أو إرجاع فاتورة'))) return;
     const reason = await promptBox('سبب الإلغاء / الإرجاع', { placeholder: 'مثال: خطأ في الطلب، إرجاع زبون...' });
     if (reason === null) return;
     const sameDay = dayKey(o.date) === dayKey(Date.now());
@@ -1469,15 +1528,15 @@ Inv.export = function () {
 VIEWS.expenses = (el) => {
   const [a, b] = Range.bounds();
   let list = DB.expenses.filter(e => e.date >= a && e.date <= b);
-  if (!App.isAdmin()) { const sh = Shift.current(); list = DB.expenses.filter(e => sh && e.shiftId === sh.id); }
+  if (!Perm.can('allExpenses')) { const sh = Shift.current(); list = DB.expenses.filter(e => sh && e.shiftId === sh.id); }
   list = list.slice().reverse();
   const total = list.reduce((s, e) => s + e.amount, 0);
   const cats = ['مشتريات مطبخ', 'خضار وفواكه', 'لحوم ودواجن', 'غاز ووقود', 'رواتب ويوميات', 'كهرباء وماء', 'صيانة', 'نظافة', 'نثريات'];
   el.innerHTML = pageHead('المصروفات', 'fa-wallet', `<button class="btn-primary" onclick="Exp.add()"><i class="fa-solid fa-plus"></i> مصروف جديد</button>`) +
-    `<div class="flex flex-wrap gap-2 items-center mb-3">${App.isAdmin() ? Range.html("App.refresh()") : '<span class="text-xs text-slate-400">مصروفات الوردية الحالية (تُخصم من نقد الدرج)</span>'}<span class="text-sm mr-auto">الإجمالي: <b class="num text-rose-400">${money(total)}</b></span></div>
+    `<div class="flex flex-wrap gap-2 items-center mb-3">${Perm.can('allExpenses') ? Range.html("App.refresh()") : '<span class="text-xs text-slate-400">مصروفات الوردية الحالية (تُخصم من نقد الدرج)</span>'}<span class="text-sm mr-auto">الإجمالي: <b class="num text-rose-400">${money(total)}</b></span></div>
     <div class="card overflow-auto"><table class="tbl"><thead><tr><th>التاريخ</th><th>البند</th><th>الوصف</th><th>المبلغ</th><th>بواسطة</th><th></th></tr></thead><tbody>
     ${list.map(e => `<tr><td class="num text-xs">${fmtDT(e.date)}</td><td><span class="chip bg-slate-800 border-slate-700 text-slate-300">${esc(e.cat || '-')}</span></td><td>${esc(e.desc)}</td><td class="num font-bold text-rose-300">${money(e.amount)}</td><td class="text-xs">${esc(e.userName)}</td>
-      <td>${App.isAdmin() ? `<button class="text-slate-500 hover:text-rose-400" onclick="Exp.del('${e.id}')"><i class="fa-solid fa-trash"></i></button>` : ''}</td></tr>`).join('') || '<tr><td colspan="6" class="text-center text-slate-500 py-10">لا توجد مصروفات</td></tr>'}
+      <td>${Perm.can('delExpense') ? `<button class="text-slate-500 hover:text-rose-400" onclick="Exp.del('${e.id}')"><i class="fa-solid fa-trash"></i></button>` : ''}</td></tr>`).join('') || '<tr><td colspan="6" class="text-center text-slate-500 py-10">لا توجد مصروفات</td></tr>'}
     </tbody></table></div>`;
   Exp.cats = cats;
 };
@@ -1751,27 +1810,38 @@ VIEWS.users = (el) => {
     `<div class="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">${DB.users.map(u => `
       <div class="card p-4 ${u.active ? '' : 'opacity-50'}"><div class="flex items-center gap-3 mb-3">
         <span class="w-11 h-11 rounded-xl flex items-center justify-center ${u.role === 'admin' ? 'bg-amber-500/20 text-amber-300' : 'bg-sky-500/20 text-sky-300'}"><i class="fa-solid ${u.role === 'admin' ? 'fa-user-tie' : 'fa-user'} text-lg"></i></span>
-        <div><div class="font-bold">${esc(u.name)}</div><div class="text-xs text-slate-400">${u.role === 'admin' ? 'مدير — كل الصلاحيات' : 'كاشير — بيع وفواتير الوردية'}</div></div></div>
+        <div><div class="font-bold">${esc(u.name)}</div><div class="text-xs text-slate-400">${u.role === 'admin' ? 'مدير — كل الصلاحيات' : 'كاشير — ' + Perm.count(u) + ' من ' + PERMS.length + ' صلاحية'}</div></div></div>
         <div class="flex gap-2"><button class="btn-ghost flex-1 text-xs py-1.5" onclick="Users.edit('${u.id}')"><i class="fa-solid fa-pen"></i> تعديل</button>
         ${u.id !== App.user.id ? `<button class="btn-ghost text-xs py-1.5 text-rose-300" onclick="Users.del('${u.id}')"><i class="fa-solid fa-trash"></i></button>` : ''}</div></div>`).join('')}</div>
-    <div class="card p-4 mt-4 text-sm text-slate-400 leading-relaxed"><b class="text-slate-200">الصلاحيات:</b> الكاشير يستطيع البيع وحفظ الطلبات وتسجيل المصروفات وعرض فواتير ورديته. الخصم، تعديل الأسعار، حذف صنف أُرسل للمطبخ، وإلغاء الفواتير تتطلب رمز المدير.</div>`;
+    <div class="card p-4 mt-4 text-sm text-slate-400 leading-relaxed"><b class="text-slate-200">الصلاحيات:</b> يمكنك ضبط صلاحيات كل كاشير من زر «تعديل». الافتراضي: الكاشير يستطيع البيع وحفظ الطلبات وتسجيل المصروفات وعرض فواتير ورديته. الخصم، تعديل الأسعار، حذف صنف أُرسل للمطبخ، وإلغاء الفواتير تتطلب رمز المدير.</div>`;
 };
 const Users = {
   edit(id) {
     const u = id ? DB.users.find(x => x.id === id) : { name: '', pin: '', role: 'cashier', active: true };
+    const cur = k => u.perms && u.perms[k] !== undefined ? !!u.perms[k] : Perm.def(k);
+    const groups = [...new Set(PERMS.map(p => p.g))];
     const w = Modal.open(`<div class="space-y-3">
       <div><label class="lbl">الاسم</label><input class="inp" value="${esc(u.name)}" data-n autofocus></div>
       <div><label class="lbl">الرمز السري (4-8 أرقام)</label><input class="inp num tracking-widest" inputmode="numeric" value="${esc(u.pin)}" data-p maxlength="8"></div>
       <div><label class="lbl">الصلاحية</label><select class="inp" data-r><option value="cashier" ${u.role === 'cashier' ? 'selected' : ''}>كاشير</option><option value="admin" ${u.role === 'admin' ? 'selected' : ''}>مدير</option></select></div>
-      <label class="flex items-center justify-between card p-2.5 text-sm"><span>الحساب مفعّل</span><label class="switch"><input type="checkbox" ${u.active ? 'checked' : ''} data-a><span></span></label></label></div>
+      <label class="flex items-center justify-between card p-2.5 text-sm"><span>الحساب مفعّل</span><label class="switch"><input type="checkbox" ${u.active ? 'checked' : ''} data-a><span></span></label></label>
+      <div data-perms class="${u.role === 'admin' ? 'hidden' : ''}">
+        <div class="flex items-center justify-between mb-1.5"><span class="lbl !mb-0">صلاحيات الكاشير</span><span class="flex gap-1">
+          <button type="button" class="chip bg-slate-800 border-slate-700 text-slate-300" data-pre="def">الافتراضي</button><button type="button" class="chip bg-slate-800 border-slate-700 text-slate-300" data-pre="all">الكل</button><button type="button" class="chip bg-slate-800 border-slate-700 text-slate-300" data-pre="none">بدون</button></span></div>
+        <p class="text-[11px] text-slate-500 mb-2">الصلاحية غير المفعّلة لا تمنع العملية نهائياً، بل تطلب رمز المدير عند تنفيذها (وتُخفي الصفحات).</p>
+        <div class="max-h-64 overflow-y-auto pr-1 space-y-2">${groups.map(g => `<div><div class="text-[11px] font-bold text-slate-400 mb-1">${g}</div>${PERMS.filter(p => p.g === g).map(p => `<label class="flex items-center justify-between gap-2 py-1.5 border-b border-slate-800 text-sm"><span>${p.n}</span><label class="switch"><input type="checkbox" data-pk="${p.k}" ${cur(p.k) ? 'checked' : ''}><span></span></label></label>`).join('')}</div>`).join('')}</div></div></div>
       <div class="flex gap-2 justify-end mt-5"><button class="btn-ghost" data-close>إلغاء</button><button class="btn-primary" data-ok>حفظ</button></div>`, { title: id ? 'تعديل مستخدم' : 'مستخدم جديد', icon: 'fa-user', size: 'max-w-md' });
+    const roleSel = $('[data-r]', w);
+    roleSel.onchange = () => $('[data-perms]', w).classList.toggle('hidden', roleSel.value === 'admin');
+    $$('[data-pre]', w).forEach(b => b.onclick = () => $$('[data-pk]', w).forEach(c => { c.checked = b.dataset.pre === 'all' ? true : b.dataset.pre === 'none' ? false : Perm.def(c.dataset.pk); }));
     $('[data-ok]', w).onclick = () => {
       const name = $('[data-n]', w).value.trim(), pin = $('[data-p]', w).value.trim(), role = $('[data-r]', w).value, active = $('[data-a]', w).checked;
       if (!name) return toast('أدخل الاسم', 'error');
       if (!/^\d{4,8}$/.test(pin)) return toast('الرمز يجب أن يكون من 4 إلى 8 أرقام', 'error');
       if (DB.users.some(x => x.pin === pin && x.id !== id)) return toast('هذا الرمز مستخدم لمستخدم آخر', 'error');
       if (id && u.role === 'admin' && (role !== 'admin' || !active) && DB.users.filter(x => x.role === 'admin' && x.active).length <= 1) return toast('يجب أن يبقى مدير واحد مفعّل على الأقل', 'error');
-      if (id) Object.assign(u, { name, pin, role, active }); else DB.users.push({ id: uid(), name, pin, role, active });
+      const perms = {}; $$('[data-pk]', w).forEach(c => { perms[c.dataset.pk] = c.checked; });
+      if (id) Object.assign(u, { name, pin, role, active, perms }); else DB.users.push({ id: uid(), name, pin, role, active, perms });
       logAct(id ? 'تعديل مستخدم' : 'إضافة مستخدم', name); Store.save(); Modal.close(); App.refresh();
       if (id === App.user.id) $('#hdrUser').textContent = name + (role === 'admin' ? ' (مدير)' : '');
     };
@@ -1831,6 +1901,9 @@ VIEWS.settings = (el) => {
       ${zones.map(z => `<div class="mb-3"><div class="text-xs text-slate-400 mb-1.5">${esc(z)}</div><div class="flex flex-wrap gap-1.5">${DB.tables.filter(t => (t.zone || 'الصالة') === z).map(t => `<button onclick="Cfg.editTable('${t.id}')" class="w-11 h-11 rounded-lg bg-slate-800 border border-slate-700 hover:border-sky-500 font-bold">${esc(t.name)}</button>`).join('')}</div></div>`).join('') || '<p class="text-slate-500 text-sm">لا توجد طاولات</p>'}
     </div>
     <div class="card p-5"><h3 class="font-bold mb-4"><i class="fa-solid fa-database text-teal-400"></i> البيانات والنسخ الاحتياطي</h3>
+      ${Backup.available() ? `${sw('autoBackup', 'نسخ احتياطي تلقائي يومي', 'نسخة كل يوم تُحدَّث كل 20 دقيقة، ويُحتفظ بآخر 30 يوماً')}
+      <div class="my-3"><div class="text-xs font-bold text-slate-300 mb-1">النسخ المحفوظة على هذا الجهاز</div><div id="bkList" class="max-h-52 overflow-y-auto"></div>
+      <button class="btn-ghost text-xs mt-2" onclick="window.dalalaBackup.open()"><i class="fa-solid fa-folder-open"></i> فتح مجلد النسخ</button></div>` : ''}
       <p class="text-xs text-slate-400 mb-3 leading-relaxed">${Store.isDesktop ? 'البيانات محفوظة على جهازك في ملف، ويتم أخذ نسخة احتياطية تلقائية يومياً.' : 'البيانات محفوظة داخل المتصفح على هذا الجهاز. خذ نسخة احتياطية بانتظام!'}<br>الفواتير: <b class="num">${DB.orders.length}</b> — الأصناف: <b class="num">${DB.products.length}</b> — حجم البيانات: <b class="num">${(JSON.stringify(DB).length / 1024).toFixed(0)} KB</b></p>
       <div class="flex flex-wrap gap-2">
         <button class="btn-primary text-xs" onclick="Cfg.backup()"><i class="fa-solid fa-download"></i> تنزيل نسخة احتياطية</button>
@@ -1840,6 +1913,7 @@ VIEWS.settings = (el) => {
         <button class="btn-ghost text-xs text-rose-300" onclick="Cfg.reset()"><i class="fa-solid fa-triangle-exclamation"></i> ضبط المصنع</button></div>
     </div></div>
     <p class="text-center text-xs text-slate-600 mt-6">منظومة دلالة للمطاعم والكافيهات — الإصدار ${APP_VERSION}</p>`;
+  Backup.renderList($('#bkList'));
   if (Store.isDesktop && window.dalala.printers) window.dalala.printers().then(list => {
     ['prnR', 'prnK'].forEach((id, i) => { const sel = $('#' + id); if (!sel) return; const cur = i ? s.kitchenPrinter : s.printerName; list.forEach(p => sel.insertAdjacentHTML('beforeend', `<option ${p.name === cur ? 'selected' : ''}>${esc(p.name)}</option>`)); });
   });
@@ -1907,17 +1981,29 @@ const Cfg = {
     try {
       const data = JSON.parse(await readFileAs(f));
       if (!data.settings || !data.products) throw new Error('bad');
+      if (!App.isAdmin() && !(await requireAdmin('استعادة نسخة احتياطية'))) return;
       if (!(await confirmBox('سيتم استبدال كل البيانات الحالية بالنسخة المختارة. متأكد؟', { danger: true, ok: 'استعادة' }))) return;
+      await Backup.snapshot('restore');
       Store.data = data; Store.saveNow(); location.reload();
     } catch (e) { toast('ملف غير صالح', 'error'); }
   },
+  async restoreAuto(name) {
+    if (!App.isAdmin() && !(await requireAdmin('استعادة نسخة احتياطية'))) return;
+    let data; try { data = JSON.parse(await window.dalalaBackup.read(name)); if (!data.settings || !data.products) throw 0; } catch (e) { return toast('تعذرت قراءة النسخة', 'error'); }
+    if (!(await confirmBox(`سيتم استبدال كل البيانات الحالية بنسخة <b>${esc(Backup.label(name))}</b>. تُحفظ نسخة من الوضع الحالي أولاً. متأكد؟`, { danger: true, ok: 'استعادة' }))) return;
+    await Backup.snapshot('restore'); Store.data = data; Store.saveNow(); location.reload();
+  },
   async clearSales() {
+    if (!App.isAdmin() && !(await requireAdmin('مسح المبيعات'))) return;
     if (!(await confirmBox('سيتم حذف كل الفواتير والورديات والمصروفات والطلبات المفتوحة مع الإبقاء على الأصناف والإعدادات. ننصح بأخذ نسخة احتياطية أولاً.', { danger: true, ok: 'مسح المبيعات' }))) return;
+    await Backup.snapshot('clear');
     Object.assign(DB, { orders: [], shifts: [], expenses: [], open: [], tickets: [], log: [] }); Store.saveNow(); location.reload();
   },
   async reset() {
+    if (!App.isAdmin() && !(await requireAdmin('ضبط المصنع'))) return;
     if (!(await confirmBox('سيتم حذف كل البيانات وإرجاع المنظومة لحالتها الأولى!', { danger: true, ok: 'نعم، احذف كل شيء' }))) return;
     if (!(await confirmBox('تأكيد أخير: لا يمكن التراجع عن هذه العملية.', { danger: true, ok: 'حذف نهائي' }))) return;
+    await Backup.snapshot('reset');
     Store.data = defaultData(); Store.saveNow(); location.reload();
   }
 };
@@ -1928,13 +2014,13 @@ const Cfg = {
    ===================================================================== */
 const Printer = {
   css(paper) {
-    const w = paper === 210 ? '190mm' : paper === 58 ? '48mm' : '72mm';
+    const w = paper === 210 ? '190mm' : paper === 58 ? '48mm' : '74mm';
     return `@page{size:${paper === 210 ? 'A4' : paper + 'mm auto'};margin:${paper === 210 ? '12mm' : '0'}}
       *{box-sizing:border-box;margin:0;padding:0}
-      body{font-family:Tahoma,'Segoe UI',Arial,sans-serif;direction:rtl;color:#000;background:#fff;width:${w};margin:0 auto;padding:${paper === 210 ? '0' : '3mm 0'};font-size:${paper === 58 ? '11px' : '12px'};line-height:1.45}
+      body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;direction:rtl;color:#000;background:#fff;width:${w};margin:0 auto;padding:${paper === 210 ? '0' : '3mm 0'};font-size:${paper === 58 ? '11px' : '12px'};line-height:1.45}
       .c{text-align:center}.b{font-weight:bold}.big{font-size:1.5em}.xl{font-size:2.2em}.ono{border:3px solid #000;border-radius:6px;padding:3px 4px;margin:5px 0;text-align:center;line-height:1.1}.ono .lbl{font-size:1em;font-weight:bold}.ono .num{font-size:${paper === 58 ? '56px' : paper === 210 ? '64px' : '76px'};font-weight:900;line-height:1.05;letter-spacing:1px}.ono .sub{font-size:1.15em;font-weight:bold;margin-top:2px}.sm{font-size:.85em}
       .hr{border-top:1px dashed #000;margin:5px 0}.hr2{border-top:2px solid #000;margin:5px 0}
-      table{width:100%;border-collapse:collapse}td,th{padding:2px 1px;vertical-align:top}th{border-bottom:1px solid #000;font-size:.9em;text-align:right}
+      table{width:100%;border-collapse:collapse}.ttl{font-size:1.67em;font-weight:bold;text-align:center}.sum{font-size:1.1em;font-weight:bold}.rt{table-layout:fixed}.rt th,.rt td{border:1px solid #000;padding:3px 4px;vertical-align:middle;text-align:center}.rt td.n{text-align:right}.rt th{font-size:1.1em;font-weight:bold}td,th{padding:2px 1px;vertical-align:top}th{border-bottom:1px solid #000;font-size:.9em;text-align:right}
       .l{text-align:left}.row{display:flex;justify-content:space-between;gap:6px}
       .box{border:2px solid #000;padding:4px;margin:4px 0;text-align:center}
       .page{page-break-after:always}.page:last-child{page-break-after:auto}
@@ -1963,7 +2049,7 @@ const Printer = {
 
   header() {
     const s = S();
-    return `${s.logo ? `<img class="logo" src="${s.logo}">` : ''}<div class="c b big">${esc(s.name)}</div>
+    return `${s.logo ? `<img class="logo" src="${s.logo}">` : ''}<div class="ttl">${esc(s.name)}</div>
       ${s.address ? `<div class="c sm">${esc(s.address)}</div>` : ''}${s.phone ? `<div class="c sm">هاتف: ${esc(s.phone)}</div>` : ''}`;
   },
 
@@ -1980,18 +2066,18 @@ const Printer = {
       ${r('الكاشير: ' + esc(o.userName || ''), '')}
       ${o.customer && (o.customer.name || o.customer.phone) ? `<div class="hr"></div>${o.customer.name ? r('الزبون:', esc(o.customer.name)) : ''}${o.customer.phone ? r('الهاتف:', esc(o.customer.phone)) : ''}${o.customer.address ? `<div>العنوان: ${esc(o.customer.address)}</div>` : ''}` : ''}
       <div class="hr"></div>
-      <table><thead><tr><th>الصنف</th><th class="c">كمية</th><th class="c">سعر</th><th class="l">المجموع</th></tr></thead><tbody>
-      ${o.items.map(i => `<tr><td>${esc(i.name)}${i.note ? `<div class="sm">(${esc(i.note)})</div>` : ''}</td><td class="c">${i.qty}</td><td class="c">${money(i.price, false)}</td><td class="l">${money(i.price * i.qty, false)}</td></tr>`).join('')}
+      <table class="rt"><colgroup><col style="width:33%"><col style="width:14%"><col style="width:25%"><col style="width:28%"></colgroup><thead><tr><th>الصنف</th><th>الكمية</th><th>السعر</th><th>القيمة</th></tr></thead><tbody>
+      ${o.items.map(i => `<tr><td class="n">${esc(i.name)}${i.note ? `<div class="sm">(${esc(i.note)})</div>` : ''}</td><td>${i.qty}</td><td>${money(i.price, false)}</td><td>${money(i.price * i.qty, false)}</td></tr>`).join('')}
       </tbody></table><div class="hr"></div>
       ${r('المجموع:', money(o.subtotal))}
       ${o.discountAmt ? r('الخصم' + (o.discount && o.discount.type === 'pct' ? ` (${o.discount.value}%)` : '') + ':', money(o.discountAmt)) : ''}
       ${o.service ? r(`الخدمة (${s.serviceRate}%):`, money(o.service)) : ''}
       ${o.tax ? r(`الضريبة (${s.taxRate}%):`, money(o.tax)) : ''}
       ${o.delivery ? r('رسوم التوصيل:', money(o.delivery)) : ''}
-      <div class="hr2"></div>${r('<b class="big">الإجمالي:</b>', '<b class="big">' + money(o.total) + '</b>')}<div class="hr2"></div>
+      <div class="hr2"></div>${r('<b class="sum">الإجمالي:</b>', '<b class="sum">' + money(o.total) + '</b>')}<div class="hr2"></div>
       ${!o.pre ? `${o.pay.cash ? r('نقدي:', money(o.tendered || o.pay.cash)) : ''}${o.pay.card ? r('بطاقة:', money(o.pay.card)) : ''}${o.change ? r('الباقي:', money(o.change)) : ''}` : ''}
       ${o.note ? `<div class="hr"></div><div class="sm">ملاحظة: ${esc(o.note)}</div>` : ''}
-      <div class="hr"></div><div class="c b">${esc(s.footer)}</div><div class="c sm" style="margin-top:4px">منظومة دلالة</div>`;
+      <div class="hr"></div><div class="c sum">${esc(s.footer)}</div><div class="c sm" style="margin-top:4px">منظومة دلالة</div>`;
     this.print(body, { copies: o.pre ? 1 : s.receiptCopies });
   },
 
