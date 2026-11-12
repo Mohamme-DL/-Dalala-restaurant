@@ -1843,7 +1843,7 @@ Object.assign(Prod, {
 /* ---------------- Raw materials, recipes, purchases ---------------- */
 const r3 = n => Math.round((+n || 0) * 1000) / 1000;
 const r4 = n => Math.round((+n || 0) * 10000) / 10000;
-const UNITS = ['جرام', 'كجم', 'مل', 'لتر', 'حبة', 'علبة', 'كيس', 'ربطة'];
+const UNITS = ['كيلوجرام', 'جرام', 'قطعة', 'صندوق', 'لتر', 'مل', 'علبة', 'كيس', 'ربطة'];
 const matOf = id => DB.materials.find(x => x.id === id);
 // مواد بالقطعة/الصندوق: المخزون والوصفات تُحسب بالجرام، ويُعرض الرصيد بالقطع/الصناديق والكيلوجرام
 const packG = m => m && m.pack ? Math.round((m.pack.kg || 0) * (m.pack.type === 'box' ? (m.pack.pcs || 1) : 1) * 1000 * 1e6) / 1e6 : 0;
@@ -1872,50 +1872,27 @@ const Inventory = {
   },
   usedBy(mid) { return DB.products.filter(p => (p.recipe || []).some(r => r.mid === mid)); },
   editMat(id) {
-    const m = id ? matOf(id) : { name: '', unit: 'جرام', stock: 0, cost: '', min: 0 };
-    const kind0 = m.pack ? m.pack.type : 'plain', pg = packG(m);
+    const m = id ? matOf(id) : { name: '', unit: 'كيلوجرام', stock: 0, cost: '', min: 0 };
+    const opts = UNITS.includes(m.unit) ? UNITS : [...UNITS, m.unit];
     const w = Modal.open(`<div class="grid grid-cols-2 gap-3">
       <div class="col-span-2"><label class="lbl">اسم المادة *</label><input class="inp" value="${esc(m.name)}" data-n autofocus></div>
-      <div class="col-span-2"><label class="lbl">طريقة الشراء والتخزين</label>
-        <select class="inp" data-k ${id ? 'disabled' : ''}><option value="plain" ${kind0 === 'plain' ? 'selected' : ''}>وحدة عادية (جرام، لتر، حبة...)</option><option value="piece" ${kind0 === 'piece' ? 'selected' : ''}>بالقطعة (بوزن بالكيلوجرام)</option><option value="box" ${kind0 === 'box' ? 'selected' : ''}>بالصندوق (عدد قطع × وزن القطعة)</option></select></div>
-      <div data-plain><label class="lbl">وحدة القياس</label><input class="inp" list="unitsList" value="${esc(m.unit)}" data-u><datalist id="unitsList">${UNITS.map(u => `<option>${u}</option>`).join('')}</datalist></div>
-      <div data-plain><label class="lbl">تكلفة الوحدة الواحدة</label><input class="inp num" type="number" step="any" value="${m.cost}" data-c placeholder="مثال: 0.012 للجرام"></div>
-      <div data-pk class="hidden"><label class="lbl">وزن القطعة الواحدة (كجم)</label><input class="inp num" type="number" step="any" min="0" value="${m.pack ? m.pack.kg : ''}" data-kg placeholder="مثال: 0.5"></div>
-      <div data-pbox class="hidden"><label class="lbl">عدد القطع في الصندوق</label><input class="inp num" type="number" step="1" min="1" value="${m.pack && m.pack.pcs ? m.pack.pcs : ''}" data-pcs placeholder="مثال: 24"></div>
-      <div data-pk class="hidden"><label class="lbl" data-pplbl>سعر الشراء</label><input class="inp num" type="number" step="any" min="0" value="${m.pack && pg ? r4(m.cost * pg) : ''}" data-pp></div>
-      <div data-pk class="hidden col-span-2 text-[11px] text-slate-400 -mt-1" data-pinfo></div>
-      <div><label class="lbl">${id ? 'الرصيد الحالي (للجرد استخدم زر جرد)' : 'الرصيد الافتتاحي'} <span data-slbl></span></label><input class="inp num" type="number" step="any" value="${m.pack && pg ? r3(m.stock / pg) : m.stock}" data-s ${id ? 'disabled' : ''}></div>
-      <div><label class="lbl">حد التنبيه (الحد الأدنى) <span data-slbl></span></label><input class="inp num" type="number" step="any" value="${m.pack && pg ? r3(m.min / pg) : m.min}" data-m></div></div>
+      <div class="col-span-2"><label class="lbl">وحدة المادة (الشراء والمخزون والوصفات بهذه الوحدة)</label>
+        <div class="flex flex-wrap gap-2" data-units>${opts.map(u => `<button type="button" data-unit="${esc(u)}" class="chip px-3 py-2 text-sm ${u === m.unit ? 'bg-sky-600 text-white border-sky-500' : 'bg-slate-800 border-slate-700 text-slate-200'}">${esc(u)}</button>`).join('')}</div>
+        <input type="hidden" value="${esc(m.unit)}" data-u></div>
+      <div><label class="lbl">سعر الشراء لل<span data-un>${esc(m.unit)}</span> الواحد</label><input class="inp num" type="number" step="any" value="${m.cost}" data-c placeholder="مثال: 12.5"></div>
+      <div><label class="lbl">${id ? 'الرصيد الحالي (للجرد استخدم زر جرد)' : 'الرصيد الافتتاحي'}</label><input class="inp num" type="number" step="any" value="${m.stock}" data-s ${id ? 'disabled' : ''}></div>
+      <div class="col-span-2"><label class="lbl">حد التنبيه (الحد الأدنى)</label><input class="inp num" type="number" step="any" value="${m.min}" data-m></div></div>
       <div class="flex gap-2 justify-end mt-5"><button class="btn-ghost" data-close>إلغاء</button><button class="btn-primary" data-ok>حفظ</button></div>`, { title: id ? 'تعديل مادة خام' : 'مادة خام جديدة', icon: 'fa-flask', size: 'max-w-md' });
-    const kindSel = $('[data-k]', w);
-    const sync = () => {
-      const k = kindSel.value, packed = k !== 'plain';
-      $$('[data-plain]', w).forEach(e => e.classList.toggle('hidden', packed));
-      $$('[data-pk]', w).forEach(e => e.classList.toggle('hidden', !packed));
-      $$('[data-pbox]', w).forEach(e => e.classList.toggle('hidden', k !== 'box'));
-      const nm = k === 'box' ? 'صندوق' : 'قطعة';
-      $('[data-pplbl]', w).textContent = 'سعر شراء ال' + nm + ' الواحد';
-      $$('[data-slbl]', w).forEach(e => e.textContent = packed ? '(بال' + nm + ')' : '');
-      const kg = parseFloat($('[data-kg]', w).value) || 0, pcs = k === 'box' ? (parseInt($('[data-pcs]', w).value) || 0) : 1, pp = parseFloat($('[data-pp]', w).value) || 0;
-      const tot = kg * pcs;
-      $('[data-pinfo]', w).textContent = packed && tot > 0 ? `وزن ال${nm} = ${r3(tot)} كجم — تكلفة الكيلو = ${money(pp / tot, false)} — تكلفة الجرام = ${r4(pp / tot / 1000)}` : '';
-    };
-    kindSel.onchange = sync; $$('[data-kg],[data-pcs],[data-pp]', w).forEach(i => i.oninput = sync); sync();
+    $$('[data-unit]', w).forEach(b => b.onclick = () => {
+      $('[data-u]', w).value = b.dataset.unit; $('[data-un]', w).textContent = b.dataset.unit;
+      $$('[data-unit]', w).forEach(x => { const on = x === b; x.classList.toggle('bg-sky-600', on); x.classList.toggle('text-white', on); x.classList.toggle('border-sky-500', on); x.classList.toggle('bg-slate-800', !on); x.classList.toggle('border-slate-700', !on); x.classList.toggle('text-slate-200', !on); });
+    });
     $('[data-ok]', w).onclick = () => {
-      const name = $('[data-n]', w).value.trim(), k = kindSel.value;
+      const name = $('[data-n]', w).value.trim(), unit = $('[data-u]', w).value.trim() || 'وحدة';
       if (!name) return toast('أدخل اسم المادة', 'error');
       if (DB.materials.some(x => x.name === name && x.id !== id)) return toast('الاسم مستخدم لمادة أخرى', 'error');
-      let data, stockIn = parseFloat($('[data-s]', w).value) || 0, minIn = parseFloat($('[data-m]', w).value) || 0, stockG;
-      if (k === 'plain') { data = { name, unit: $('[data-u]', w).value.trim() || 'وحدة', cost: r4(parseFloat($('[data-c]', w).value) || 0), min: minIn, pack: null }; stockG = stockIn; }
-      else {
-        const kg = parseFloat($('[data-kg]', w).value), pcs = parseInt($('[data-pcs]', w).value), pp = parseFloat($('[data-pp]', w).value);
-        if (!(kg > 0)) return toast('أدخل وزن القطعة بالكيلوجرام', 'error');
-        if (k === 'box' && !(pcs >= 1)) return toast('أدخل عدد القطع في الصندوق', 'error');
-        if (!(pp >= 0)) return toast('أدخل سعر الشراء', 'error');
-        const pack = { type: k, kg, pcs: k === 'box' ? pcs : 1 }, g = kg * (k === 'box' ? pcs : 1) * 1000;
-        data = { name, unit: 'جرام', cost: r4(pp / g), min: r3(minIn * g), pack }; stockG = r3(stockIn * g);
-      }
-      if (id) Object.assign(m, data); else DB.materials.push(Object.assign({ id: uid(), stock: r3(stockG) }, data));
+      const data = { name, unit, cost: r4(parseFloat($('[data-c]', w).value) || 0), min: parseFloat($('[data-m]', w).value) || 0 };
+      if (id) Object.assign(m, data); else DB.materials.push(Object.assign({ id: uid(), stock: r3(parseFloat($('[data-s]', w).value) || 0) }, data));
       logAct(id ? 'تعديل مادة خام' : 'إضافة مادة خام', name); Store.save(); Modal.close(); App.refresh();
     };
   },
