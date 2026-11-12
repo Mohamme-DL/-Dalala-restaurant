@@ -77,6 +77,7 @@
         <div id="hdrDate" class="num text-[10px] text-slate-400"></div>
       </div>
       <button onclick="App.toggleFullscreen()" title="ملء الشاشة" class="w-9 h-9 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300"><i class="fa-solid fa-expand"></i></button>
+      <button id="themeBtn" onclick="Theme.toggle()" title="الوضع الليلي / الفاتح" class="w-9 h-9 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-300"><i class="fa-solid fa-sun"></i></button>
       <button onclick="App.lock()" title="قفل / تبديل المستخدم" class="w-9 h-9 rounded-lg bg-slate-800 hover:bg-rose-900/50 border border-slate-700 text-rose-300"><i class="fa-solid fa-lock"></i></button>
     </div>
   </header>
@@ -161,7 +162,7 @@ if (!(window.dalalaDesktop && window.dalalaDesktop.licensed)) { try { window.sto
 /* =====================================================================
    منظومة دلالة للمطاعم — Core: storage, utils, UI helpers
    ===================================================================== */
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.6';
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -588,7 +589,7 @@ const App = {
     const w = Modal.open(`<p class="text-sm text-slate-400 mb-4">اختر طريقة عمل محلّك (يمكن تغييرها لاحقاً من الإعدادات):</p>
       <div class="grid sm:grid-cols-2 gap-3">
         ${card('quick', 'fa-bolt', 'بيع فوري (كافيه / تيك أواي)', 'بدون طاولات ولا مطبخ. اختر الأصناف ← ادفع ← طلب جديد مباشرة. مناسب للمقاهي التي يشتري فيها الزبون ويخرج.')}
-        ${card('restaurant', 'fa-utensils', 'مطعم كامل', 'صالة وطاولات وسفري وتوصيل، حفظ الطلبات على الطاولات وتذاكر وشاشة المطبخ.')}
+        ${card('restaurant', 'fa-utensils', 'مطعم كامل', 'صالة وطاولات وتيك أوي وتوصيل، حفظ الطلبات على الطاولات وتذاكر وشاشة المطبخ.')}
       </div>`, { title: 'نوع النشاط', icon: 'fa-store', size: 'max-w-2xl', sticky: !!first });
     $$('[data-m]', w).forEach(b => b.onclick = () => {
       const m = b.dataset.m;
@@ -729,7 +730,7 @@ const Shift = {
 /* =====================================================================
    POS — نقطة البيع
    ===================================================================== */
-const TYPES = { dine: { name: 'صالة', icon: 'fa-chair' }, take: { name: 'سفري', icon: 'fa-bag-shopping' }, delivery: { name: 'توصيل', icon: 'fa-motorcycle' } };
+const TYPES = { dine: { name: 'صالة', icon: 'fa-chair' }, take: { name: 'تيك أوي', icon: 'fa-bag-shopping' }, delivery: { name: 'توصيل', icon: 'fa-motorcycle' } };
 
 function calcOrder(o) {
   const s = S();
@@ -982,7 +983,7 @@ const POS = {
       </div>
       <label class="lbl mt-3">ملاحظة للمطبخ</label>
       <input class="inp" value="${esc(it.note)}" placeholder="مثال: بدون بصل، سكر خفيف..." data-n>
-      <div class="flex flex-wrap gap-1.5 mt-2">${['بدون سكر', 'سكر خفيف', 'بدون بصل', 'حار', 'بدون مايونيز', 'إضافي جبن', 'مثلج', 'سفري'].map(t => `<button class="chip bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700" data-tag="${t}">${t}</button>`).join('')}</div>
+      <div class="flex flex-wrap gap-1.5 mt-2">${['بدون سكر', 'سكر خفيف', 'بدون بصل', 'حار', 'بدون مايونيز', 'إضافي جبن', 'مثلج', 'تيك أوي'].map(t => `<button class="chip bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700" data-tag="${t}">${t}</button>`).join('')}</div>
       <div class="flex gap-2 justify-end mt-5"><button class="btn-ghost" data-close>إلغاء</button><button class="btn-primary" data-ok>حفظ</button></div>`,
       { title: it.name, icon: 'fa-pen-to-square', size: 'max-w-md' });
     $$('[data-tag]', w).forEach(b => b.onclick = () => { const n = $('[data-n]', w); n.value = n.value ? n.value + '، ' + b.dataset.tag : b.dataset.tag; });
@@ -1277,7 +1278,7 @@ VIEWS.tables = (el) => {
           <span class="text-2xl font-extrabold">${esc(t.name)}</span><span class="num font-bold text-amber-200 text-sm">${money(c.total)}</span>
           <span class="text-[10px] text-rose-200"><i class="fa-regular fa-clock"></i> ${since(o.createdAt)} • ${c.qty} صنف</span></button>`;
     }).join('')}</div>`).join('') +
-    `<h3 class="text-sm font-bold text-slate-400 mb-2 mt-4"><i class="fa-solid fa-bag-shopping"></i> طلبات سفري وتوصيل معلّقة (${others.length})</h3>` +
+    `<h3 class="text-sm font-bold text-slate-400 mb-2 mt-4"><i class="fa-solid fa-bag-shopping"></i> طلبات تيك أوي وتوصيل معلّقة (${others.length})</h3>` +
     (others.length ? `<div class="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">${others.map(o => {
       const c = calcOrder(o);
       return `<button onclick="POS.load('${o.id}')" class="press card p-3 text-right hover:border-violet-500/50 transition">
@@ -2111,6 +2112,7 @@ const Theme = {
   apply() {
     const c = this.get(), root = document.documentElement, light = this.isLight(c.mode);
     root.setAttribute('data-theme', light ? 'light' : 'dark');
+    this.syncBtn(light);
     ['200', '300', '400', '500', '600'].forEach(k => root.style.removeProperty('--ac-' + k));
     if (light || (c.accent && c.accent.toLowerCase() !== this.DEF.accent)) {
       const [h, s, l] = this.hsl(c.accent || this.DEF.accent);
@@ -2120,6 +2122,8 @@ const Theme = {
     }
   },
   set(p) { this.save(Object.assign(this.get(), p)); this.apply(); if (window.App && App.refresh) App.refresh(); },
+  syncBtn(light) { const b = document.getElementById('themeBtn'); if (b) b.innerHTML = light ? '<i class="fa-solid fa-moon text-sky-300"></i>' : '<i class="fa-solid fa-sun"></i>'; },
+  toggle() { this.set({ mode: this.isLight(this.get().mode) ? 'dark' : 'light' }); },
   panel() {
     const c = this.get(), modes = [['dark', 'ليلي', 'fa-moon'], ['light', 'فاتح', 'fa-sun'], ['auto', 'تلقائي', 'fa-circle-half-stroke']];
     return `<div class="mb-4"><div class="text-xs text-slate-400 mb-2">وضع الواجهة (لهذا الجهاز)</div><div class="flex gap-2">${modes.map(m => `<button class="chip ${c.mode === m[0] ? 'bg-sky-500/20 text-sky-300 border-sky-500/40' : 'bg-slate-800 border-slate-700 text-slate-300'} px-3 py-2 text-xs" onclick="Theme.set({mode:'${m[0]}'})"><i class="fa-solid ${m[2]}"></i> ${m[1]}</button>`).join('')}</div></div>
