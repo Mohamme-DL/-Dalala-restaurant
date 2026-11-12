@@ -1654,7 +1654,7 @@ VIEWS.reports = (el) => {
 const Rep = {
   stockAlert() {
     const lowM = DB.materials.filter(m => m.min > 0 && m.stock <= m.min);
-    const matHtml = lowM.length ? `<div class="card p-4 border-rose-500/40 mb-3"><h3 class="font-bold mb-2 text-sm text-rose-300"><i class="fa-solid fa-triangle-exclamation"></i> مواد خام منخفضة</h3><div class="flex flex-wrap gap-2">${lowM.map(m => `<span class="chip bg-rose-500/15 border-rose-500/30 text-rose-200">${esc(m.name)}: ${m.stock} ${esc(m.unit)}</span>`).join('')}</div></div>` : '';
+    const matHtml = lowM.length ? `<div class="card p-4 border-rose-500/40 mb-3"><h3 class="font-bold mb-2 text-sm text-rose-300"><i class="fa-solid fa-triangle-exclamation"></i> مواد خام منخفضة</h3><div class="flex flex-wrap gap-2">${lowM.map(m => `<span class="chip bg-rose-500/15 border-rose-500/30 text-rose-200">${esc(m.name)}: ${m.pack ? stockText(m) : m.stock + ' ' + esc(m.unit)}</span>`).join('')}</div></div>` : '';
     const low = DB.products.filter(p => p.trackStock && p.stock <= S().lowStockAlert);
     return matHtml + (low.length ? `<div class="card p-4 border-rose-500/40"><h3 class="font-bold mb-2 text-sm text-rose-300"><i class="fa-solid fa-triangle-exclamation"></i> أصناف مخزونها منخفض</h3><div class="flex flex-wrap gap-2">${low.map(p => `<span class="chip bg-rose-500/15 border-rose-500/30 text-rose-200">${esc(p.name)}: ${p.stock}</span>`).join('')}</div></div>` : '');
   },
@@ -1844,6 +1844,14 @@ const r3 = n => Math.round((+n || 0) * 1000) / 1000;
 const r4 = n => Math.round((+n || 0) * 10000) / 10000;
 const UNITS = ['جرام', 'كجم', 'مل', 'لتر', 'حبة', 'علبة', 'كيس', 'ربطة'];
 const matOf = id => DB.materials.find(x => x.id === id);
+// مواد بالقطعة/الصندوق: المخزون والوصفات تُحسب بالجرام، ويُعرض الرصيد بالقطع/الصناديق والكيلوجرام
+const packG = m => m && m.pack ? Math.round((m.pack.kg || 0) * (m.pack.type === 'box' ? (m.pack.pcs || 1) : 1) * 1000 * 1e6) / 1e6 : 0;
+const packName = m => m && m.pack ? (m.pack.type === 'box' ? 'صندوق' : 'قطعة') : '';
+const stockText = (m, g = m.stock) => {
+  if (!m.pack || !packG(m)) return String(r3(g));
+  const n = r3(g / packG(m)), kg = r3(g / 1000), pcs = m.pack.type === 'box' ? r3(g / (m.pack.kg * 1000)) : 0;
+  return `${n} ${packName(m)}` + (pcs ? ` (${pcs} قطعة)` : '') + ` ≈ ${kg} كجم`;
+};
 const recipeCost = p => r4((p.recipe || []).reduce((a, r) => { const m = matOf(r.mid); return a + (m ? m.cost * r.qty : 0); }, 0));
 const unitCost = p => (p.recipe && p.recipe.length) ? recipeCost(p) : (p.cost || 0);
 const Inventory = {
@@ -1859,32 +1867,63 @@ const Inventory = {
   },
   restore(list) { (list || []).forEach(u => { const m = matOf(u.mid); if (m) m.stock = r3(m.stock + u.qty); }); },
   warn(p, qty) {
-    (p.recipe || []).forEach(r => { const m = matOf(r.mid); if (m && m.stock - r.qty * qty < 0) toast(`تنبيه: مادة "${m.name}" لا تكفي (${m.stock} ${m.unit})`, 'warning'); });
+    (p.recipe || []).forEach(r => { const m = matOf(r.mid); if (m && m.stock - r.qty * qty < 0) toast(`تنبيه: مادة "${m.name}" لا تكفي (${stockText(m)}${m.pack ? '' : ' ' + m.unit})`, 'warning'); });
   },
   usedBy(mid) { return DB.products.filter(p => (p.recipe || []).some(r => r.mid === mid)); },
   editMat(id) {
     const m = id ? matOf(id) : { name: '', unit: 'جرام', stock: 0, cost: '', min: 0 };
+    const kind0 = m.pack ? m.pack.type : 'plain', pg = packG(m);
     const w = Modal.open(`<div class="grid grid-cols-2 gap-3">
       <div class="col-span-2"><label class="lbl">اسم المادة *</label><input class="inp" value="${esc(m.name)}" data-n autofocus></div>
-      <div><label class="lbl">وحدة القياس</label><input class="inp" list="unitsList" value="${esc(m.unit)}" data-u><datalist id="unitsList">${UNITS.map(u => `<option>${u}</option>`).join('')}</datalist></div>
-      <div><label class="lbl">تكلفة الوحدة الواحدة</label><input class="inp num" type="number" step="any" value="${m.cost}" data-c placeholder="مثال: 0.012 للجرام"></div>
-      <div><label class="lbl">${id ? 'الرصيد الحالي (للجرد استخدم زر جرد)' : 'الرصيد الافتتاحي'}</label><input class="inp num" type="number" step="any" value="${m.stock}" data-s ${id ? 'disabled' : ''}></div>
-      <div><label class="lbl">حد التنبيه (الحد الأدنى)</label><input class="inp num" type="number" step="any" value="${m.min}" data-m></div></div>
+      <div class="col-span-2"><label class="lbl">طريقة الشراء والتخزين</label>
+        <select class="inp" data-k ${id ? 'disabled' : ''}><option value="plain" ${kind0 === 'plain' ? 'selected' : ''}>وحدة عادية (جرام، لتر، حبة...)</option><option value="piece" ${kind0 === 'piece' ? 'selected' : ''}>بالقطعة (بوزن بالكيلوجرام)</option><option value="box" ${kind0 === 'box' ? 'selected' : ''}>بالصندوق (عدد قطع × وزن القطعة)</option></select></div>
+      <div data-plain><label class="lbl">وحدة القياس</label><input class="inp" list="unitsList" value="${esc(m.unit)}" data-u><datalist id="unitsList">${UNITS.map(u => `<option>${u}</option>`).join('')}</datalist></div>
+      <div data-plain><label class="lbl">تكلفة الوحدة الواحدة</label><input class="inp num" type="number" step="any" value="${m.cost}" data-c placeholder="مثال: 0.012 للجرام"></div>
+      <div data-pk class="hidden"><label class="lbl">وزن القطعة الواحدة (كجم)</label><input class="inp num" type="number" step="any" min="0" value="${m.pack ? m.pack.kg : ''}" data-kg placeholder="مثال: 0.5"></div>
+      <div data-pbox class="hidden"><label class="lbl">عدد القطع في الصندوق</label><input class="inp num" type="number" step="1" min="1" value="${m.pack && m.pack.pcs ? m.pack.pcs : ''}" data-pcs placeholder="مثال: 24"></div>
+      <div data-pk class="hidden"><label class="lbl" data-pplbl>سعر الشراء</label><input class="inp num" type="number" step="any" min="0" value="${m.pack && pg ? r4(m.cost * pg) : ''}" data-pp></div>
+      <div data-pk class="hidden col-span-2 text-[11px] text-slate-400 -mt-1" data-pinfo></div>
+      <div><label class="lbl">${id ? 'الرصيد الحالي (للجرد استخدم زر جرد)' : 'الرصيد الافتتاحي'} <span data-slbl></span></label><input class="inp num" type="number" step="any" value="${m.pack && pg ? r3(m.stock / pg) : m.stock}" data-s ${id ? 'disabled' : ''}></div>
+      <div><label class="lbl">حد التنبيه (الحد الأدنى) <span data-slbl></span></label><input class="inp num" type="number" step="any" value="${m.pack && pg ? r3(m.min / pg) : m.min}" data-m></div></div>
       <div class="flex gap-2 justify-end mt-5"><button class="btn-ghost" data-close>إلغاء</button><button class="btn-primary" data-ok>حفظ</button></div>`, { title: id ? 'تعديل مادة خام' : 'مادة خام جديدة', icon: 'fa-flask', size: 'max-w-md' });
+    const kindSel = $('[data-k]', w);
+    const sync = () => {
+      const k = kindSel.value, packed = k !== 'plain';
+      $$('[data-plain]', w).forEach(e => e.classList.toggle('hidden', packed));
+      $$('[data-pk]', w).forEach(e => e.classList.toggle('hidden', !packed));
+      $$('[data-pbox]', w).forEach(e => e.classList.toggle('hidden', k !== 'box'));
+      const nm = k === 'box' ? 'صندوق' : 'قطعة';
+      $('[data-pplbl]', w).textContent = 'سعر شراء ال' + nm + ' الواحد';
+      $$('[data-slbl]', w).forEach(e => e.textContent = packed ? '(بال' + nm + ')' : '');
+      const kg = parseFloat($('[data-kg]', w).value) || 0, pcs = k === 'box' ? (parseInt($('[data-pcs]', w).value) || 0) : 1, pp = parseFloat($('[data-pp]', w).value) || 0;
+      const tot = kg * pcs;
+      $('[data-pinfo]', w).textContent = packed && tot > 0 ? `وزن ال${nm} = ${r3(tot)} كجم — تكلفة الكيلو = ${money(pp / tot, false)} — تكلفة الجرام = ${r4(pp / tot / 1000)}` : '';
+    };
+    kindSel.onchange = sync; $$('[data-kg],[data-pcs],[data-pp]', w).forEach(i => i.oninput = sync); sync();
     $('[data-ok]', w).onclick = () => {
-      const name = $('[data-n]', w).value.trim(), unit = $('[data-u]', w).value.trim() || 'وحدة';
+      const name = $('[data-n]', w).value.trim(), k = kindSel.value;
       if (!name) return toast('أدخل اسم المادة', 'error');
       if (DB.materials.some(x => x.name === name && x.id !== id)) return toast('الاسم مستخدم لمادة أخرى', 'error');
-      const data = { name, unit, cost: r4(parseFloat($('[data-c]', w).value) || 0), min: parseFloat($('[data-m]', w).value) || 0 };
-      if (id) Object.assign(m, data); else DB.materials.push(Object.assign({ id: uid(), stock: r3(parseFloat($('[data-s]', w).value) || 0) }, data));
+      let data, stockIn = parseFloat($('[data-s]', w).value) || 0, minIn = parseFloat($('[data-m]', w).value) || 0, stockG;
+      if (k === 'plain') { data = { name, unit: $('[data-u]', w).value.trim() || 'وحدة', cost: r4(parseFloat($('[data-c]', w).value) || 0), min: minIn, pack: null }; stockG = stockIn; }
+      else {
+        const kg = parseFloat($('[data-kg]', w).value), pcs = parseInt($('[data-pcs]', w).value), pp = parseFloat($('[data-pp]', w).value);
+        if (!(kg > 0)) return toast('أدخل وزن القطعة بالكيلوجرام', 'error');
+        if (k === 'box' && !(pcs >= 1)) return toast('أدخل عدد القطع في الصندوق', 'error');
+        if (!(pp >= 0)) return toast('أدخل سعر الشراء', 'error');
+        const pack = { type: k, kg, pcs: k === 'box' ? pcs : 1 }, g = kg * (k === 'box' ? pcs : 1) * 1000;
+        data = { name, unit: 'جرام', cost: r4(pp / g), min: r3(minIn * g), pack }; stockG = r3(stockIn * g);
+      }
+      if (id) Object.assign(m, data); else DB.materials.push(Object.assign({ id: uid(), stock: r3(stockG) }, data));
       logAct(id ? 'تعديل مادة خام' : 'إضافة مادة خام', name); Store.save(); Modal.close(); App.refresh();
     };
   },
   async count(id) {
     const m = matOf(id);
-    const v = await promptBox('جرد — ' + m.name, { type: 'number', label: `الرصيد في النظام: ${m.stock} ${esc(m.unit)}. أدخل الكمية الفعلية الموجودة` });
+    const pk = m.pack && packG(m), un = pk ? packName(m) : esc(m.unit);
+    const v = await promptBox('جرد — ' + m.name, { type: 'number', label: `الرصيد في النظام: ${pk ? stockText(m) : m.stock + ' ' + un}. أدخل الكمية الفعلية الموجودة${pk ? ' (بال' + un + ')' : ''}` });
     if (v === null || isNaN(parseFloat(v))) return;
-    const nv = r3(parseFloat(v)); logAct('جرد مخزون', `${m.name}: ${m.stock} → ${nv}`); m.stock = nv; Store.save(); App.refresh();
+    const nv = r3(parseFloat(v) * (pk || 1)); logAct('جرد مخزون', `${m.name}: ${stockText(m)} → ${stockText(m, nv)}`); m.stock = nv; Store.save(); App.refresh();
   },
   async delMat(id) {
     const m = matOf(id), used = this.usedBy(id);
@@ -1894,7 +1933,8 @@ const Inventory = {
   },
   purchase() {
     if (!DB.materials.length) return toast('أضف مادة خام أولاً', 'warning');
-    const lines = [{ mid: DB.materials[0].id, qty: '', price: '' }];
+    const defPrice = m => m && m.cost ? r4(m.cost * (packG(m) || 1)) : '';
+    const lines = [{ mid: DB.materials[0].id, qty: '', price: defPrice(DB.materials[0]) }];
     const w = Modal.open(`<div class="space-y-3"><div><label class="lbl">المورّد (اختياري)</label><input class="inp" data-sup placeholder="اسم المورّد"></div>
       <div><div class="flex items-center justify-between mb-1"><span class="lbl !mb-0">الأصناف المشتراة</span><button type="button" class="btn-ghost text-xs py-1" data-add><i class="fa-solid fa-plus"></i> سطر</button></div><div data-lines class="space-y-1.5"></div></div>
       <div class="flex justify-between items-center card p-2.5"><span class="text-sm text-slate-400">إجمالي الفاتورة</span><b class="num text-xl text-emerald-400" data-tot>0</b></div>
@@ -1904,15 +1944,15 @@ const Inventory = {
     const draw = () => {
       const box = $('[data-lines]', w);
       box.innerHTML = lines.map((l, i) => { const m = matOf(l.mid); return `<div class="flex items-center gap-2"><select class="inp py-1.5 text-sm flex-1" data-lm="${i}">${DB.materials.map(x => `<option value="${x.id}" ${x.id === l.mid ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>
-        <input class="inp num py-1.5 w-24 text-sm" type="number" step="any" min="0" placeholder="الكمية" value="${l.qty}" data-lq="${i}"><span class="text-xs text-slate-400 w-10">${m ? esc(m.unit) : ''}</span>
+        <input class="inp num py-1.5 w-24 text-sm" type="number" step="any" min="0" placeholder="الكمية" value="${l.qty}" data-lq="${i}"><span class="text-xs text-slate-400 w-12">${m ? esc(m.pack ? packName(m) : m.unit) : ''}</span>
         <input class="inp num py-1.5 w-24 text-sm" type="number" step="any" min="0" placeholder="سعر الوحدة" value="${l.price}" data-lp="${i}"><button type="button" class="text-slate-500 hover:text-rose-400" data-lx="${i}"><i class="fa-solid fa-xmark"></i></button></div>`; }).join('');
-      $$('[data-lm]', box).forEach(s => s.onchange = () => { lines[+s.dataset.lm].mid = s.value; const m = matOf(s.value); if (m && !lines[+s.dataset.lm].price) lines[+s.dataset.lm].price = m.cost || ''; draw(); });
+      $$('[data-lm]', box).forEach(s => s.onchange = () => { lines[+s.dataset.lm].mid = s.value; const m = matOf(s.value); if (m && !lines[+s.dataset.lm].price) lines[+s.dataset.lm].price = m.cost ? r4(m.cost * (packG(m) || 1)) : ''; draw(); });
       $$('[data-lq]', box).forEach(s => s.oninput = () => { lines[+s.dataset.lq].qty = s.value; $('[data-tot]', w).textContent = money(tot(), false); });
       $$('[data-lp]', box).forEach(s => s.oninput = () => { lines[+s.dataset.lp].price = s.value; $('[data-tot]', w).textContent = money(tot(), false); });
       $$('[data-lx]', box).forEach(s => s.onclick = () => { if (lines.length > 1) { lines.splice(+s.dataset.lx, 1); draw(); } });
       $('[data-tot]', w).textContent = money(tot(), false);
     };
-    $('[data-add]', w).onclick = () => { lines.push({ mid: DB.materials[0].id, qty: '', price: '' }); draw(); };
+    $('[data-add]', w).onclick = () => { lines.push({ mid: DB.materials[0].id, qty: '', price: defPrice(DB.materials[0]) }); draw(); };
     draw();
     $('[data-ok]', w).onclick = () => {
       const ok = lines.filter(l => parseFloat(l.qty) > 0);
@@ -1922,9 +1962,9 @@ const Inventory = {
       if (asExp && total > 0 && !Shift.ensure()) return;
       const sup = $('[data-sup]', w).value.trim(), rec = [];
       ok.forEach(l => {
-        const m = matOf(l.mid), q = parseFloat(l.qty), pr = parseFloat(l.price);
+        const m = matOf(l.mid), q0 = parseFloat(l.qty), pr0 = parseFloat(l.price), k = packG(m) || 1, q = q0 * k, pr = pr0 / k;   // المواد المعبأة: الكمية والسعر تتحول إلى جرام
         m.cost = m.stock > 0 ? r4((m.stock * m.cost + q * pr) / (m.stock + q)) : r4(pr);   // weighted average
-        m.stock = r3(m.stock + q); rec.push({ mid: m.id, name: m.name, unit: m.unit, qty: q, price: pr });
+        m.stock = r3(m.stock + q); rec.push({ mid: m.id, name: m.name, unit: m.pack ? packName(m) : m.unit, qty: q0, price: pr0 });
       });
       DB.purchases.unshift({ id: uid(), date: Date.now(), supplier: sup, lines: rec, total, userName: App.user.name });
       if (asExp && total > 0) { const sh = Shift.current(); DB.expenses.push({ id: uid(), date: Date.now(), amount: total, cat: 'مشتريات مطبخ', desc: 'شراء مواد خام' + (sup ? ' — ' + sup : ''), userName: App.user.name, shiftId: sh ? sh.id : null }); }
@@ -1939,8 +1979,8 @@ VIEWS.inventory = (el) => {
     `<div class="grid grid-cols-3 gap-3 mb-3">${kpi('عدد المواد', mats.length, 'fa-flask', 'text-teal-300')}${kpi('قيمة المخزون', money(val), 'fa-coins', 'text-emerald-300')}${kpi('مواد منخفضة', low.length, 'fa-triangle-exclamation', low.length ? 'text-rose-300' : 'text-slate-300')}</div>
     <div class="flex gap-2 mb-3">${tabs}</div>` +
     (Inventory.tab === 'materials' ? `<div class="card overflow-auto"><table class="tbl"><thead><tr><th>المادة</th><th>الوحدة</th><th>الرصيد</th><th>تكلفة الوحدة</th><th>الحد الأدنى</th><th>القيمة</th><th></th></tr></thead><tbody>
-      ${mats.map(m => { const lw = m.min > 0 && m.stock <= m.min; return `<tr><td class="font-bold">${esc(m.name)}</td><td class="text-xs text-slate-400">${esc(m.unit)}</td>
-        <td><span class="chip num ${lw ? 'bg-rose-500/15 text-rose-300 border-rose-500/30' : 'bg-slate-800 border-slate-700 text-slate-200'}">${m.stock}</span></td><td class="num text-xs">${m.cost}</td><td class="num text-xs text-slate-400">${m.min || '-'}</td><td class="num text-xs">${money(Math.max(0, m.stock) * m.cost, false)}</td>
+      ${mats.map(m => { const lw = m.min > 0 && m.stock <= m.min; return `<tr><td class="font-bold">${esc(m.name)}</td><td class="text-xs text-slate-400">${m.pack ? packName(m) + ' (' + r3(packG(m) / 1000) + ' كجم)' : esc(m.unit)}</td>
+        <td><span class="chip num ${lw ? 'bg-rose-500/15 text-rose-300 border-rose-500/30' : 'bg-slate-800 border-slate-700 text-slate-200'}">${m.pack ? stockText(m) : m.stock}</span></td><td class="num text-xs">${m.pack ? money(m.cost * packG(m), false) + ' /' + packName(m) : m.cost}</td><td class="num text-xs text-slate-400">${m.min ? (m.pack ? stockText(m, m.min) : m.min) : '-'}</td><td class="num text-xs">${money(Math.max(0, m.stock) * m.cost, false)}</td>
         <td class="whitespace-nowrap"><button class="btn-ghost text-xs py-1" onclick="Inventory.count('${m.id}')">جرد</button> <button class="text-slate-400 hover:text-white px-1" onclick="Inventory.editMat('${m.id}')"><i class="fa-solid fa-pen"></i></button> <button class="text-slate-500 hover:text-rose-400 px-1" onclick="Inventory.delMat('${m.id}')"><i class="fa-solid fa-trash"></i></button></td></tr>`; }).join('') || '<tr><td colspan="7" class="text-center text-slate-500 py-8">لا توجد مواد خام. أضف مادة ثم اربطها بالأصناف من «تعديل صنف ← الوصفة».</td></tr>'}</tbody></table></div>`
       : `<div class="card overflow-auto"><table class="tbl"><thead><tr><th>التاريخ</th><th>المورّد</th><th>الأصناف</th><th>الإجمالي</th><th>المستخدم</th></tr></thead><tbody>
       ${DB.purchases.map(p => `<tr><td class="num text-xs">${fmtDT(p.date)}</td><td>${esc(p.supplier || '-')}</td><td class="text-xs text-slate-300">${p.lines.map(l => esc(l.name) + ' × ' + l.qty + ' ' + esc(l.unit)).join('، ')}</td><td class="num font-bold text-emerald-400">${money(p.total)}</td><td class="text-xs">${esc(p.userName || '')}</td></tr>`).join('') || '<tr><td colspan="5" class="text-center text-slate-500 py-8">لا توجد مشتريات مسجلة</td></tr>'}</tbody></table></div>`);
