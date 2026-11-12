@@ -2460,13 +2460,19 @@ const Printer = {
     copies = Math.max(1, Math.min(5, parseInt(copies) || 1));
     const dialog = () => {
       const html = this.doc(Array.from({ length: copies }, () => `<div class="page">${body}</div>`).join(''), paper);
-      const f = $('#printFrame');
-      f.onload = () => {
-        f.onload = null;
-        try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { console.error(e); }
-        setTimeout(() => { window.focus(); const t = Modal.top(), a = t && $('[autofocus]', t); if (a) a.focus(); else if (document.activeElement) document.activeElement.blur(); }, 50);
-      };
-      f.srcdoc = html;
+      // طابور: لا تبدأ الطباعة التالية قبل انتهاء السابقة (فاتورة الزبون ثم تذكرة المطبخ على نفس الطابعة)
+      const job = () => new Promise(done => {
+        const f = $('#printFrame');
+        let fin = false;
+        const end = () => { if (fin) return; fin = true; setTimeout(() => { window.focus(); const t = Modal.top(), a = t && $('[autofocus]', t); if (a) a.focus(); else if (document.activeElement) document.activeElement.blur(); done(); }, 300); };
+        f.onload = () => {
+          f.onload = null;
+          try { f.contentWindow.onafterprint = end; f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { console.error(e); end(); return; }
+          setTimeout(end, 4000);
+        };
+        f.srcdoc = html;
+      });
+      Printer._q = (Printer._q || Promise.resolve()).then(job, job);
     };
     if (PRN() && s.silentPrint) {
       const html = this.doc(body, paper);
