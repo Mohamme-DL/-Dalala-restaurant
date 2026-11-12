@@ -768,6 +768,7 @@ const POS = {
     if (isQuick()) meta += `<button onclick="POS.editCustomer()" class="press flex-1 flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-bold min-w-0 ${o.customer.name ? 'bg-violet-500/15 border-violet-500/40 text-violet-200' : 'bg-slate-800 border-dashed border-slate-600 text-slate-400'}"><i class="fa-solid fa-bolt text-amber-300"></i><span class="truncate">${o.customer.name ? esc(o.customer.name) : 'بيع فوري — اسم الزبون (اختياري)'}</span></button>`;
     else if (o.type === 'dine') meta += `<button onclick="POS.pickTable()" class="press flex-1 flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-bold ${o.tableId ? 'bg-indigo-500/15 border-indigo-500/40 text-indigo-200' : 'bg-slate-800 border-dashed border-slate-600 text-slate-400'}"><i class="fa-solid fa-chair"></i>${o.tableId ? 'طاولة ' + esc(tableName(o.tableId)) : 'اختر الطاولة'}</button>`;
     else meta += `<button onclick="POS.editCustomer()" class="press flex-1 flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-bold min-w-0 ${o.customer.name || o.customer.phone ? 'bg-violet-500/15 border-violet-500/40 text-violet-200' : 'bg-slate-800 border-dashed border-slate-600 text-slate-400'}"><i class="fa-solid fa-user"></i><span class="truncate">${o.customer.name || o.customer.phone ? esc(o.customer.name || o.customer.phone) : (o.type === 'delivery' ? 'بيانات الزبون والعنوان' : 'اسم الزبون (اختياري)')}</span></button>`;
+    if (!isQuick() && o.items.length) meta += `${o.type === 'dine' && o.tableId ? `<button onclick="POS.moveMerge()" title="نقل / دمج الطاولة" class="w-10 h-10 rounded-xl border bg-slate-800 border-slate-700 text-indigo-300 hover:text-white"><i class="fa-solid fa-right-left"></i></button>` : ''}<button onclick="POS.splitBill()" title="تقسيم الحساب" class="w-10 h-10 rounded-xl border bg-slate-800 border-slate-700 text-emerald-300 hover:text-white"><i class="fa-solid fa-scissors"></i></button>`;
     meta += `<button onclick="POS.editNote()" title="ملاحظة الطلب" class="w-10 h-10 rounded-xl border ${o.note ? 'bg-amber-500/15 border-amber-500/40 text-amber-300' : 'bg-slate-800 border-slate-700 text-slate-400'}"><i class="fa-solid fa-note-sticky"></i></button>
       <button onclick="POS.printPreBill()" title="طباعة فاتورة مبدئية (F6)" class="w-10 h-10 rounded-xl border bg-slate-800 border-slate-700 text-slate-300 hover:text-white"><i class="fa-solid fa-print"></i></button>
       <button onclick="POS.clear()" title="مسح الطلب (F2)" class="w-10 h-10 rounded-xl border bg-slate-800 border-slate-700 text-rose-300 hover:bg-rose-950/50"><i class="fa-solid fa-trash-can"></i></button>`;
@@ -1222,6 +1223,139 @@ POS.newOrderOnTable = function (tid) {
     return toast('يوجد طلب غير محفوظ في شاشة البيع', 'warning');
   }
   this.cur = this.blank('dine'); this.cur.tableId = tid; App.go('pos');
+};
+
+/* ---------------- Move / merge tables, split bill ---------------- */
+POS.persistCur = function () {
+  const o = this.cur;
+  if (!o.id) { o.id = uid(); o.createdAt = Date.now(); o.userName = App.user.name; o.dailyNo = nextDailyNo(); }
+  this.sendKitchen(o);
+  const i = DB.open.findIndex(x => x.id === o.id);
+  if (i >= 0) DB.open[i] = clone(o); else DB.open.push(clone(o));
+  Store.save();
+};
+POS.moveMerge = function () {
+  const o = this.cur;
+  if (o.type !== 'dine' || !o.tableId) return toast('النقل والدمج متاحان لطلبات الصالة المرتبطة بطاولة', 'warning');
+  const busy = {}; DB.open.forEach(x => { if (x.type === 'dine' && x.tableId && x.id !== o.id) busy[x.tableId] = x; });
+  const zones = [...new Set(DB.tables.map(t => t.zone || 'الصالة'))];
+  const w = Modal.open(`<p class="text-xs text-slate-400 mb-2">من طاولة <b class="text-indigo-300">${esc(tableName(o.tableId))}</b> — اختر طاولة فارغة للنقل، أو مشغولة للدمج في حسابها.</p>` + zones.map(z => `
+    <h4 class="text-xs font-bold text-slate-400 mb-2 mt-1">${esc(z)}</h4>
+    <div class="grid grid-cols-4 sm:grid-cols-6 gap-2 mb-3">${DB.tables.filter(t => (t.zone || 'الصالة') === z && t.id !== o.tableId).map(t => {
+      const b = busy[t.id];
+      return `<button data-t="${t.id}" class="press aspect-square rounded-xl border flex flex-col items-center justify-center gap-0.5 ${b ? 'bg-amber-500/15 border-amber-500/40 text-amber-200' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200'}">
+        <span class="font-extrabold text-lg leading-none">${esc(t.name)}</span><span class="text-[10px] font-bold">${b ? 'دمج' : 'نقل'}</span>${b ? `<span class="text-[9px] num">${money(calcOrder(b).total, false)}</span>` : ''}</button>`;
+    }).join('')}</div>`).join(''), { title: 'نقل / دمج الطاولة', icon: 'fa-right-left', size: 'max-w-2xl' });
+  $$('[data-t]', w).forEach(b => b.onclick = async () => {
+    const tid = b.dataset.t, target = busy[tid];
+    Modal.close();
+    if (!target) {
+      const from = tableName(o.tableId); o.tableId = tid;
+      const e = DB.open.find(x => x.id === o.id); if (e) e.tableId = tid;
+      logAct('نقل طاولة', from + ' → ' + tableName(tid)); Store.save();
+      toast(`تم نقل الطلب إلى طاولة ${tableName(tid)}`, 'success'); return this.renderOrder();
+    }
+    if (!Shift.ensure()) return;
+    const warn = o.discount && o.discount.value > 0 ? '<br><span class="text-amber-300 text-xs">خصم هذا الطلب لا يُنقل، يبقى خصم الطاولة الهدف.</span>' : '';
+    if (!(await confirmBox(`دمج طاولة <b>${esc(tableName(o.tableId))}</b> في طاولة <b>${esc(tableName(tid))}</b>؟ ستُضاف أصنافها إلى حساب الطاولة الهدف وتصبح الأولى فارغة.${warn}`, { ok: 'دمج' }))) return;
+    o.items.forEach(it => {
+      const m = target.items.find(x => x.pid === it.pid && x.price === it.price && (x.note || '') === (it.note || '') && x.kitchen === it.kitchen);
+      if (m) { m.qty += it.qty; m.sent += it.sent; } else target.items.push(clone(it));
+    });
+    if (o.note && o.note !== target.note) target.note = [target.note, o.note].filter(Boolean).join(' | ');
+    const from = tableName(o.tableId);
+    DB.open = DB.open.filter(x => x.id !== o.id);
+    logAct('دمج طاولات', from + ' → ' + tableName(tid) + ' — ' + money(calcOrder(target).total));
+    Store.save();
+    this.cur = clone(target); this.tendered = ''; this.sel = null; this.renderOrder(); this.renderGrid();
+    toast(`تم الدمج في طاولة ${tableName(tid)}`, 'success');
+  });
+};
+POS.splitBill = function () {
+  const o = this.cur;
+  if (!o.items.length) return toast('الطلب فارغ', 'error');
+  if (o.items.length === 1 && o.items[0].qty === 1) { /* only equal split makes sense */ }
+  if (!Shift.ensure()) return;
+  const take = o.items.map(() => 0);
+  let people = 2, mode = 'items';
+  const total = calcOrder(o).total;
+  const build = () => {
+    const sub = clone(o), rem = clone(o); sub.items = []; rem.items = [];
+    o.items.forEach((it, i) => {
+      const t = take[i], sentTaken = Math.min(it.sent, t);
+      if (t > 0) { const a = clone(it); a.qty = t; a.sent = sentTaken; sub.items.push(a); }
+      const rq = it.qty - t;
+      if (rq > 0) { const b = clone(it); b.qty = rq; b.sent = Math.min(rq, it.sent - sentTaken); rem.items.push(b); }
+    });
+    if (o.discount && o.discount.type !== 'pct' && o.discount.value > 0) {
+      const full = calcOrder(o).subtotal || 1, part = calcOrder(sub).subtotal;
+      const v = round(o.discount.value * part / full);
+      sub.discount = { type: 'fixed', value: v }; rem.discount = { type: 'fixed', value: round(o.discount.value - v) };
+    }
+    sub.deliveryFee = 0; sub.id = uid();
+    return { sub, rem };
+  };
+  const w = Modal.open(`
+    <div class="grid grid-cols-2 gap-1 bg-slate-800 rounded-xl p-1 mb-3">
+      <button data-m="items" class="py-1.5 rounded-lg text-sm font-bold">حسب الأصناف</button>
+      <button data-m="equal" class="py-1.5 rounded-lg text-sm font-bold">بالتساوي</button></div>
+    <div data-p-items>
+      <p class="text-xs text-slate-400 mb-2">حدّد الأصناف (والكميات) التي سيدفعها هذا الشخص الآن، ويبقى الباقي مفتوحاً على الطاولة.</p>
+      <div class="space-y-1.5 max-h-72 overflow-y-auto" data-rows></div>
+      <div class="flex justify-between items-center mt-3 text-sm"><span class="text-slate-400">حصة هذا الدفع (مع الخدمة والضريبة)</span><b class="num text-emerald-400 text-xl" data-sub>0</b></div>
+      <div class="flex justify-between text-xs text-slate-500"><span>المتبقي على الطاولة</span><span class="num" data-rem></span></div>
+      <div class="flex gap-2 justify-end mt-4 flex-wrap"><button class="btn-ghost" data-close>إلغاء</button>
+        <button class="btn-primary" data-pay="card"><i class="fa-solid fa-credit-card"></i> دفع بطاقة</button>
+        <button class="btn-success" data-pay="cash"><i class="fa-solid fa-money-bill"></i> دفع نقدي</button></div>
+    </div>
+    <div data-p-equal class="hidden">
+      <p class="text-xs text-slate-400 mb-3">توزيع الإجمالي على عدد الأشخاص للعرض فقط. للدفع الفعلي لكل شخص استخدم «حسب الأصناف» أو الدفع المختلط.</p>
+      <div class="flex items-center justify-center gap-3 mb-3"><button class="w-10 h-10 rounded-xl bg-slate-800 border border-slate-700 text-xl font-bold" data-pm>−</button><span class="num text-3xl font-extrabold w-12 text-center" data-n>2</span><button class="w-10 h-10 rounded-xl bg-slate-800 border border-slate-700 text-xl font-bold" data-pp>+</button><span class="text-slate-400 text-sm">أشخاص</span></div>
+      <div class="text-center"><div class="text-xs text-slate-400">حصة كل شخص</div><div class="num text-3xl font-extrabold text-emerald-400" data-each></div><div class="text-[11px] text-slate-500 mt-1" data-diff></div></div>
+      <div class="flex gap-2 justify-end mt-4"><button class="btn-ghost" data-close>إغلاق</button></div>
+    </div>`, { title: 'تقسيم الحساب', icon: 'fa-scissors', size: 'max-w-lg' });
+  const rows = $('[data-rows]', w);
+  const draw = () => {
+    $$('[data-m]', w).forEach(b => b.className = 'py-1.5 rounded-lg text-sm font-bold ' + (b.dataset.m === mode ? 'bg-sky-600 text-white' : 'text-slate-400'));
+    $('[data-p-items]', w).classList.toggle('hidden', mode !== 'items'); $('[data-p-equal]', w).classList.toggle('hidden', mode !== 'equal');
+    rows.innerHTML = o.items.map((it, i) => `<div class="flex items-center gap-2 bg-slate-800/60 border border-slate-700 rounded-xl p-2">
+      <div class="flex-1 min-w-0"><div class="text-sm font-bold truncate">${esc(it.name)}${it.note ? ` <span class="text-amber-300 text-[11px]">(${esc(it.note)})</span>` : ''}</div><div class="text-[11px] text-slate-400 num">${money(it.price, false)} × ${it.qty}</div></div>
+      <button class="chip bg-slate-900 border-slate-700 text-slate-300" data-all="${i}">الكل</button>
+      <div class="flex items-center gap-1 bg-slate-900 rounded-lg p-1 border border-slate-700"><button class="w-7 h-7 rounded bg-slate-800 font-bold" data-d="${i}:-1">−</button><span class="num text-sm font-bold w-6 text-center ${take[i] ? 'text-emerald-400' : 'text-slate-500'}">${take[i]}</span><button class="w-7 h-7 rounded bg-slate-800 font-bold" data-d="${i}:1">+</button></div></div>`).join('');
+    $$('[data-d]', rows).forEach(b => b.onclick = () => { const [i, d] = b.dataset.d.split(':').map(Number); take[i] = Math.max(0, Math.min(o.items[i].qty, take[i] + d)); draw(); });
+    $$('[data-all]', rows).forEach(b => b.onclick = () => { const i = +b.dataset.all; take[i] = take[i] === o.items[i].qty ? 0 : o.items[i].qty; draw(); });
+    const { sub, rem } = build(), cs = calcOrder(sub), cr = calcOrder(rem);
+    $('[data-sub]', w).textContent = money(cs.total); $('[data-rem]', w).textContent = money(cr.total);
+    const full = !rem.items.length, none = !sub.items.length;
+    $$('[data-pay]', w).forEach(b => { b.disabled = none || full; b.style.opacity = (none || full) ? .4 : 1; });
+    const each = round(total / people);
+    $('[data-n]', w).textContent = people; $('[data-each]', w).textContent = money(each);
+    const diff = round(total - each * people); $('[data-diff]', w).textContent = diff ? `فرق التقريب ${money(Math.abs(diff))} ${diff > 0 ? 'ناقص' : 'زائد'}` : '';
+  };
+  $$('[data-m]', w).forEach(b => b.onclick = () => { mode = b.dataset.m; draw(); });
+  $('[data-pm]', w).onclick = () => { people = Math.max(2, people - 1); draw(); };
+  $('[data-pp]', w).onclick = () => { people = Math.min(30, people + 1); draw(); };
+  $$('[data-close]', w).forEach(b => b.onclick = () => Modal.close());
+  $$('[data-pay]', w).forEach(b => b.onclick = async () => {
+    const method = b.dataset.pay;
+    this.persistCur();
+    const { sub, rem } = build(), cs = calcOrder(sub);
+    if (!sub.items.length || !rem.items.length) return;
+    let pay = { cash: 0, card: 0 }, tendered = 0, change = 0;
+    Modal.close();
+    if (method === 'cash') {
+      const v = await promptBox('المبلغ المدفوع نقداً', { type: 'number', value: String(round(cs.total)), label: 'الحصة: ' + money(cs.total), ok: 'تأكيد' });
+      if (v === null) return;
+      tendered = parseFloat(v) || cs.total;
+      if (tendered < cs.total) return toast(`المبلغ أقل من الحصة (${money(cs.total)})`, 'error');
+      pay.cash = cs.total; change = round(tendered - cs.total);
+    } else pay.card = cs.total;
+    const i = DB.open.findIndex(x => x.id === o.id); rem.id = o.id; if (i >= 0) DB.open[i] = clone(rem);
+    logAct('تقسيم حساب', orderLabel(o) + ' — دُفع جزء ' + money(cs.total));
+    this.finalize(sub, cs, pay, tendered, change);
+    this.cur = clone(rem); this.tendered = ''; this.sel = null; this.renderOrder();
+  });
+  draw();
 };
 
 /* ---------------- Kitchen display ---------------- */
