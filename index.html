@@ -253,6 +253,7 @@ const Store = {
     const d = defaultData();
     for (const k in d) if (this.data[k] === undefined) this.data[k] = d[k];
     for (const k in d.settings) if (this.data.settings[k] === undefined) this.data.settings[k] = d.settings[k];
+    if (!this.data.settings._printUiV2) { this.data.settings.silentPrint = false; this.data.settings._printUiV2 = 1; } // show the print window by default
     return this.data;
   },
   save() { clearTimeout(this._t); this._t = setTimeout(() => this.saveNow(), 250); },
@@ -832,7 +833,7 @@ const POS = {
     else meta += `<button onclick="POS.editCustomer()" class="press flex-1 flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-bold min-w-0 ${o.customer.name || o.customer.phone ? 'bg-violet-500/15 border-violet-500/40 text-violet-200' : 'bg-slate-800 border-dashed border-slate-600 text-slate-400'}"><i class="fa-solid fa-user"></i><span class="truncate">${o.customer.name || o.customer.phone ? esc(o.customer.name || o.customer.phone) : (o.type === 'delivery' ? 'بيانات الزبون والعنوان' : 'اسم الزبون (اختياري)')}</span></button>`;
     if (!isQuick() && o.items.length) meta += `${o.type === 'dine' && o.tableId ? `<button onclick="POS.moveMerge()" title="نقل / دمج الطاولة" class="w-10 h-10 rounded-xl border bg-slate-800 border-slate-700 text-indigo-300 hover:text-white"><i class="fa-solid fa-right-left"></i></button>` : ''}<button onclick="POS.splitBill()" title="تقسيم الحساب" class="w-10 h-10 rounded-xl border bg-slate-800 border-slate-700 text-emerald-300 hover:text-white"><i class="fa-solid fa-scissors"></i></button>`;
     meta += `<button onclick="POS.editNote()" title="ملاحظة الطلب" class="w-10 h-10 rounded-xl border ${o.note ? 'bg-amber-500/15 border-amber-500/40 text-amber-300' : 'bg-slate-800 border-slate-700 text-slate-400'}"><i class="fa-solid fa-note-sticky"></i></button>
-      <button onclick="POS.printPreBill()" title="طباعة فاتورة مبدئية (F6)" class="w-10 h-10 rounded-xl border bg-slate-800 border-slate-700 text-slate-300 hover:text-white"><i class="fa-solid fa-print"></i></button>
+      <button onclick="POS.printPreBill()" title="طباعة الفاتورة الحالية (F6)" class="w-10 h-10 rounded-xl border bg-slate-800 border-slate-700 text-slate-300 hover:text-white"><i class="fa-solid fa-print"></i></button>
       <button onclick="POS.clear()" title="مسح الطلب (F2)" class="w-10 h-10 rounded-xl border bg-slate-800 border-slate-700 text-rose-300 hover:bg-rose-950/50"><i class="fa-solid fa-trash-can"></i></button>`;
     $('#orderMeta').innerHTML = meta;
 
@@ -2047,7 +2048,7 @@ VIEWS.settings = (el) => {
         ${inp('receiptCopies', 'نسخ فاتورة الزبون', 'number', 'min="1" max="5"')}${inp('kitchenCopies', 'نسخ تذكرة المطبخ', 'number', 'min="1" max="5"')}</div>
       ${sw('autoPrint', 'طباعة الفاتورة تلقائياً بعد الدفع')}
       ${sw('kitchenPrint', isQuick() ? 'طباعة تذكرة تحضير (للباريستا) مع كل بيع' : 'طباعة تذكرة المطبخ عند الحفظ/الإرسال')}
-      ${PRN() ? `${sw('silentPrint', 'طباعة مباشرة بدون نافذة (صامتة)', 'تطبع مباشرة على الطابعة المحددة أدناه')}
+      ${PRN() ? `${sw('silentPrint', 'طباعة مباشرة بدون نافذة (صامتة)', 'مطفأ: تظهر نافذة الطباعة دائماً. مفعّل: تُطبع مباشرة على الطابعة المحددة')}
         <div class="grid sm:grid-cols-2 gap-3 mt-3"><div><label class="lbl">طابعة الفواتير</label><select class="inp" id="prnR" onchange="Cfg.v('printerName',this.value)"><option value="">الطابعة الافتراضية</option></select></div>
         <div><label class="lbl">طابعة المطبخ</label><select class="inp" id="prnK" onchange="Cfg.v('kitchenPrinter',this.value)"><option value="">نفس طابعة الفواتير</option></select></div></div>` :
       `<p class="text-[11px] text-slate-500 mt-2">للطباعة المباشرة بدون نافذة وتحديد طابعة للمطبخ استخدم نسخة البرنامج (Dalala.exe).</p>`}
@@ -2423,14 +2424,14 @@ const Cfg = {
    ===================================================================== */
 const Printer = {
   css(paper) {
-    const w = paper === 210 ? '190mm' : paper === 58 ? '48mm' : '74mm';
+    const w = paper === 210 ? '190mm' : '100%';
     return `@page{size:${paper === 210 ? 'A4' : paper + 'mm auto'};margin:${paper === 210 ? '12mm' : '0'}}
       *{box-sizing:border-box;margin:0;padding:0}
-      body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;direction:rtl;color:#000;background:#fff;width:${w};margin:0 auto;padding:${paper === 210 ? '0' : '3mm 0'};font-size:${paper === 58 ? '11px' : '12px'};line-height:1.45}
+      body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;direction:rtl;color:#000;background:#fff;width:${w};margin:0 auto;padding:${paper === 210 ? '0' : '3mm ' + (paper === 58 ? '2mm' : '3.5mm')};overflow-wrap:anywhere;font-size:${paper === 58 ? '11px' : '12px'};line-height:1.45}
       .c{text-align:center}.b{font-weight:bold}.big{font-size:1.5em}.xl{font-size:2.2em}.ono{border:3px solid #000;border-radius:6px;padding:3px 4px;margin:5px 0;text-align:center;line-height:1.1}.ono .lbl{font-size:1em;font-weight:bold}.ono .num{font-size:${paper === 58 ? '56px' : paper === 210 ? '64px' : '76px'};font-weight:900;line-height:1.05;letter-spacing:1px}.ono .sub{font-size:1.15em;font-weight:bold;margin-top:2px}.sm{font-size:.85em}
       .hr{border-top:1px dashed #000;margin:5px 0}.hr2{border-top:2px solid #000;margin:5px 0}
       table{width:100%;border-collapse:collapse}.ttl{font-size:1.67em;font-weight:bold;text-align:center}.sum{font-size:1.1em;font-weight:bold}.rt{table-layout:fixed}.rt th,.rt td{border:1px solid #000;padding:3px 4px;vertical-align:middle;text-align:center}.rt td.n{text-align:right}.rt th{font-size:1.1em;font-weight:bold}td,th{padding:2px 1px;vertical-align:top}th{border-bottom:1px solid #000;font-size:.9em;text-align:right}
-      .l{text-align:left}.row{display:flex;justify-content:space-between;gap:6px}
+      .l{text-align:left}.row{display:flex;justify-content:space-between;gap:6px}.row>span{min-width:0}html{width:100%}
       .box{border:2px solid #000;padding:4px;margin:4px 0;text-align:center}
       .page{page-break-after:always}.page:last-child{page-break-after:auto}
       img.logo{max-width:40%;max-height:22mm;display:block;margin:0 auto 4px}`;
@@ -2471,7 +2472,7 @@ const Printer = {
     const typeLine = isQuick() && o.type === 'take' ? 'بيع مباشر' : o.type === 'dine' ? `صالة — طاولة ${esc(o.tableName || tableName(o.tableId))}` : TYPES[o.type].name;
     const r = (k, v, cls = '') => `<div class="row ${cls}"><span>${k}</span><span>${v}</span></div>`;
     const body = `${this.header()}<div class="hr"></div>
-      ${o.pre ? '<div class="box b">فاتورة مبدئية — غير مدفوعة</div>' : ''}${o.copy ? '<div class="c b sm">— نسخة —</div>' : ''}
+      ${o.copy ? '<div class="c b sm">— نسخة —</div>' : ''}
       ${o.status && o.status !== 'paid' ? '<div class="box b">ملغاة</div>' : ''}
       ${o.dailyNo ? `<div class="ono"><div class="lbl">رقم الطلب</div><div class="num">${o.dailyNo}</div><div class="sub">${typeLine}</div></div>` : ''}
       ${r('فاتورة رقم: <b>' + o.no + '</b>', fmtDT(o.date))}
@@ -2479,7 +2480,7 @@ const Printer = {
       ${r('الكاشير: ' + esc(o.userName || ''), '')}
       ${o.customer && (o.customer.name || o.customer.phone) ? `<div class="hr"></div>${o.customer.name ? r('الزبون:', esc(o.customer.name)) : ''}${o.customer.phone ? r('الهاتف:', esc(o.customer.phone)) : ''}${o.customer.address ? `<div>العنوان: ${esc(o.customer.address)}</div>` : ''}` : ''}
       <div class="hr"></div>
-      <table class="rt"><colgroup><col style="width:33%"><col style="width:14%"><col style="width:25%"><col style="width:28%"></colgroup><thead><tr><th>الصنف</th><th>الكمية</th><th>السعر</th><th>القيمة</th></tr></thead><tbody>
+      <table class="rt"><colgroup><col style="width:31%"><col style="width:18%"><col style="width:24%"><col style="width:27%"></colgroup><thead><tr><th>الصنف</th><th>الكمية</th><th>السعر</th><th>القيمة</th></tr></thead><tbody>
       ${o.items.map(i => `<tr><td class="n">${esc(i.name)}${i.note ? `<div class="sm">(${esc(i.note)})</div>` : ''}</td><td>${i.qty}</td><td>${money(i.price, false)}</td><td>${money(i.price * i.qty, false)}</td></tr>`).join('')}
       </tbody></table><div class="hr"></div>
       ${r('المجموع:', money(o.subtotal))}
