@@ -258,6 +258,12 @@ function global:Start-WebApp {
     $net = Get-NetConfig
     Initialize-WebView2Library
     Start-Servers $net
+    # فحص ذاتي للخادم المحلي (يُسجَّل في logs\last-error.txt)
+    try {
+        $rq = [Net.HttpWebRequest]::Create('http://127.0.0.1:' + $global:UiPort + '/index.html'); $rq.Proxy = $null; $rq.Timeout = 8000
+        $rs = $rq.GetResponse(); $ms = [IO.MemoryStream]::new(); $rs.GetResponseStream().CopyTo($ms); $rs.Close()
+        Write-AppError 'selftest OK' ('index.html bytes=' + $ms.Length + ' served=' + [DalalaRestaurant.MiniHttp]::Served)
+    } catch { Write-AppError 'selftest FAILED' (($_ | Out-String) + ' server=' + [DalalaRestaurant.MiniHttp]::LastError + ' web=' + (Join-Path $global:AppRoot 'web') + ' exists=' + (Test-Path -LiteralPath (Join-Path $global:AppRoot 'web\index.html'))) }
     $form = [Windows.Forms.Form]::new()
     $form.Text = $global:AppTitle; $form.StartPosition = 'CenterScreen'; $form.WindowState = 'Maximized'; $form.MinimumSize = [Drawing.Size]::new(1000, 640)
     $form.BackColor = [Drawing.Color]::FromArgb(15, 23, 42)
@@ -267,6 +273,8 @@ function global:Start-WebApp {
     $wv.Dock = 'Fill'; $wv.DefaultBackgroundColor = [Drawing.Color]::FromArgb(15, 23, 42)
     $props = [Microsoft.Web.WebView2.WinForms.CoreWebView2CreationProperties]::new()
     $props.UserDataFolder = Join-Path $global:DataDir 'webview2-data'
+    # الواجهة محلية فقط: نمنع تمرير الاتصال عبر أي وكيل (Proxy/VPN) لأنه قد يعيد تعيين الاتصال
+    $props.AdditionalBrowserArguments = '--no-proxy-server --proxy-bypass-list=*'
     $wv.CreationProperties = $props
     $form.Controls.Add($wv); $global:WebView = $wv
     $shim = Get-PageShim $net
@@ -279,6 +287,7 @@ function global:Start-WebApp {
             foreach ($kv in @(@('AreDevToolsEnabled', $false), @('AreDefaultContextMenusEnabled', $false), @('IsStatusBarEnabled', $false), @('IsZoomControlEnabled', $false), @('AreBrowserAcceleratorKeysEnabled', $false))) {
                 try { $st.($kv[0]) = $kv[1] } catch { }
             }
+            $core.add_NavigationCompleted({ param($a, $b) if (-not $b.IsSuccess) { Write-AppError 'NavigationCompleted failed' ('WebErrorStatus=' + [string]$b.WebErrorStatus + ' server=' + [DalalaRestaurant.MiniHttp]::LastError) } })
             $core.add_NewWindowRequested({ param($a, $b) $b.Handled = $true })
             $core.add_NavigationStarting({ param($a, $b) if (-not ([string]$b.Uri).StartsWith('http://127.0.0.1:' + $global:UiPort + '/')) { $b.Cancel = $true; if ([string]$b.Uri -match '^https?://') { try { Start-Process ([string]$b.Uri) } catch {} } } })
             $core.add_WebMessageReceived({

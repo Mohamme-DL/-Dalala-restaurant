@@ -46,6 +46,8 @@ namespace DalalaRestaurant
         readonly TcpListener listener; readonly Action<HttpReq, HttpRes> handler; volatile bool running; Thread acceptThread;
         readonly List<TcpClient> open = new List<TcpClient>();
         public const int MaxBody = 200 * 1024 * 1024;
+        public static volatile string LastError = "";
+        public static volatile int Served = 0;
 
         public MiniHttp(IPAddress bind, int port, Action<HttpReq, HttpRes> handler)
         { listener = new TcpListener(bind, port); this.handler = handler; }
@@ -82,13 +84,17 @@ namespace DalalaRestaurant
             try
             {
                 c.ReceiveTimeout = 30000; c.SendTimeout = 30000;
+                c.LingerState = new LingerOption(true, 5);
                 var s = c.GetStream(); var req = ReadRequest(s, c);
                 if (req == null) return;
                 var res = new HttpRes(s);
                 try { handler(req, res); if (!res.Sent) res.Send(404, "text/plain", Encoding.UTF8.GetBytes("not found"), null); }
-                catch (Exception) { try { if (!res.Sent) res.Send(500, "text/plain", Encoding.UTF8.GetBytes("error"), null); } catch { } }
+                catch (Exception ex) { LastError = "handler: " + ex; try { if (!res.Sent) res.Send(500, "text/plain", Encoding.UTF8.GetBytes("error"), null); } catch { } }
+                Served++;
+                // graceful close: stop sending, drain whatever the peer still sends, so Windows never answers with RST
+                try { c.Client.Shutdown(SocketShutdown.Send); c.ReceiveTimeout = 800; var d = new byte[2048]; while (s.Read(d, 0, d.Length) > 0) { } } catch { }
             }
-            catch { }
+            catch (Exception ex) { LastError = "serve: " + ex.Message; }
             finally { try { c.Close(); } catch { } lock (open) open.Remove(c); }
         }
 

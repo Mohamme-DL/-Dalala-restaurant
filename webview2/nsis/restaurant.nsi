@@ -1,6 +1,6 @@
 Unicode true
 !define APP "منظومة دلالة للمطاعم والمقاهي"
-!define VER "1.2.0"
+!define VER "1.2.1"
 !define REGKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\DalalaRestaurant"
 !ifndef SRC
  !define SRC "stage"
@@ -12,7 +12,7 @@ RequestExecutionLevel admin
 SetCompressor /SOLID lzma
 BrandingText "${APP} ${VER}"
 ShowInstDetails show
-VIProductVersion "1.2.0.0"
+VIProductVersion "1.2.1.0"
 VIAddVersionKey /LANG=1025 "ProductName" "${APP}"
 VIAddVersionKey /LANG=1025 "CompanyName" "Dalala"
 VIAddVersionKey /LANG=1025 "FileDescription" "مثبّت ${APP}"
