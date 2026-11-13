@@ -2479,7 +2479,7 @@ const Printer = {
         f.onload = () => {
           f.onload = null;
           try { f.contentWindow.onafterprint = end; f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { console.error(e); end(); return; }
-          setTimeout(end, 4000);
+          setTimeout(end, 120000);   // ننتظر إغلاق نافذة الطباعة (afterprint) حتى لا تُلغي الطباعةُ التاليةُ الحاليةَ
         };
         f.srcdoc = html;
       });
