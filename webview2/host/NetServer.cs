@@ -304,6 +304,7 @@ namespace DalalaRestaurant
         void Handle(HttpReq req, HttpRes res)
         {
             if (req.Method == "OPTIONS") { Send(res, 204, null); return; }
+            if ((req.Method == "GET" || req.Method == "HEAD") && (req.Path == "/w" || req.Path.StartsWith("/w/"))) { ServeWaiter(req, res); return; }
             var okKey = KeyOk(req.Header("x-dalala-key"));
             if (req.Path == "/api/ping") { Send(res, 200, new Dict { { "ok", true }, { "app", "dalala" }, { "version", version }, { "keyOk", okKey } }); return; }
             if (!okKey) { Send(res, 401, new Dict { { "error", "key" } }); return; }
@@ -337,6 +338,26 @@ namespace DalalaRestaurant
                 Dict r2; lock (sync) r2 = Apply(J.L(J.Get(msg, "ops")), cid); Send(res, 200, r2); return;
             }
             Send(res, 404, new Dict { { "error", "not found" } });
+        }
+        /// <summary>folder of the waiter web app (served at /w/ without the key; the data API still needs it)</summary>
+        public string WebRoot = "";
+        static readonly Dictionary<string, string> Mime = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) {
+            { ".html", "text/html; charset=utf-8" }, { ".js", "application/javascript; charset=utf-8" }, { ".css", "text/css; charset=utf-8" },
+            { ".png", "image/png" }, { ".svg", "image/svg+xml" }, { ".json", "application/json" }, { ".webmanifest", "application/manifest+json" } };
+        void ServeWaiter(HttpReq req, HttpRes res)
+        {
+            var nf = new Dictionary<string, string> { { "Cache-Control", "no-cache" } };
+            if (req.Path == "/w") { res.Send(302, "text/plain", new byte[0], new Dictionary<string, string> { { "Location", "/w/" } }); return; }
+            try
+            {
+                if (string.IsNullOrEmpty(WebRoot) || !Directory.Exists(WebRoot)) { res.Send(404, "text/plain", Encoding.UTF8.GetBytes("waiter app not installed"), null); return; }
+                var full = Path.GetFullPath(WebRoot); var rel = req.Path.Substring(3); if (rel.Length == 0) rel = "index.html";
+                var p = Path.GetFullPath(Path.Combine(full, rel.Replace('/', Path.DirectorySeparatorChar)));
+                if (!p.StartsWith(full + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) || !File.Exists(p)) { res.Send(404, "text/plain", Encoding.UTF8.GetBytes("not found"), null); return; }
+                string t; if (!Mime.TryGetValue(Path.GetExtension(p), out t)) t = "application/octet-stream";
+                res.Send(200, t, req.Method == "HEAD" ? new byte[0] : File.ReadAllBytes(p), nf);
+            }
+            catch { res.Send(404, "text/plain", Encoding.UTF8.GetBytes("not found"), null); }
         }
         static double Rules_Now() { return (DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds; }
 

@@ -159,6 +159,35 @@ const INC_FIELDS = { products: ['stock'] }; // counters sent as +/- so simultane
     if (kitchen && App.view === 'kitchen') beep(990, .15);
   }, 700);
 
+  /* ---- طلبات تطبيق النادل: الجهاز الرئيسي يطبع تذكرة المطبخ والفاتورة ويسجّل الدفع ---- */
+  const Remote = {
+    busy: new Set(), warned: new Set(),
+    run() {
+      if (NETCFG.mode !== 'host' || !booted || !DB || typeof Printer === 'undefined') return;
+      const now = Date.now(); let dirty = false;
+      for (const t of DB.tickets) {
+        if (t.src !== 'waiter' || t.printed || this.busy.has(t.id)) continue;
+        this.busy.add(t.id); t.printed = true; dirty = true;
+        if (now - (t.at || now) < 30 * 60000 && S().kitchenPrint !== false) { try { Printer.kitchen(t); } catch (e) { /* toast shown by printer */ } }
+      }
+      for (const o of DB.open) {
+        if (o.billReq && o.billReq > (o.billPrinted || 0)) {
+          o.billPrinted = o.billReq; dirty = true;
+          try { Printer.receipt(Object.assign({}, o, calcOrder(o), { no: '—', date: now, pre: true, userName: o.userName || '', pay: { cash: 0, card: 0 } })); } catch (e) { /* ignore */ }
+        }
+      }
+      if (dirty) Store.save();
+      for (const o of DB.open.slice()) {
+        const r = o.payReq; if (!r || !App.user || (POS.cur && POS.cur.id === o.id)) continue;
+        if (S().requireShift && !Shift.current()) { if (!this.warned.has(o.id)) { this.warned.add(o.id); toast('طلب دفع من النادل ينتظر فتح وردية', 'warning'); } continue; }
+        const c = calcOrder(o), pay = r.method === 'card' ? { cash: 0, card: c.total } : { cash: c.total, card: 0 };
+        const by = DB.users.find(u => u.name === r.by) || App.user;
+        try { POS.finalize(clone(o), c, pay, r.method === 'card' ? 0 : c.total, 0, by); } catch (e) { delete o.payReq; Store.save(); toast('تعذّر تسجيل دفع النادل: ' + e.message, 'error'); }
+      }
+    }
+  };
+  setInterval(() => { try { Remote.run(); } catch (e) { /* ignore */ } }, 1500);
+
   function updateBadge() { const b = $('#netBadge'); if (b) b.outerHTML = netBadge(); }
 
   /* boot: fetch the shared database (or fall back to this device's last copy when offline) */
@@ -246,6 +275,7 @@ const Net = {
         <div><div class="text-slate-400">مفتاح الربط</div><b class="num text-lg tracking-widest text-amber-300" dir="ltr">${esc(i.key || '—')}</b></div>
         <div><div class="text-slate-400">الأجهزة المتصلة</div><b class="text-sm">${clients.filter(x => x.online).length} متصل الآن</b></div></div>
       ${clients.length ? `<div class="mt-2 space-y-1">${clients.map(x => `<div class="flex justify-between items-center bg-slate-800/40 rounded-lg px-3 py-1.5 text-xs"><span><i class="fa-solid fa-computer text-slate-400"></i> <b>${esc(x.name || x.id.slice(0, 6))}</b> <span class="text-slate-500 num" dir="ltr">${esc(String(x.ip || '').replace('::ffff:', ''))} · ${fmtTime(x.lastSeen)}</span></span><span class="${x.online ? 'text-emerald-400' : 'text-slate-500'}">${x.online ? 'متصل' : 'غير متصل'}</span></div>`).join('')}</div>` : ''}
+      ${(i.ips || []).length ? `<div class="mt-3 bg-sky-500/10 border border-sky-500/30 rounded-xl p-3 text-xs leading-relaxed"><b class="text-sky-300">تطبيق النادل (هاتف / آيباد)</b><br>افتح هذا الرابط من متصفح الهاتف وهو على نفس شبكة الواي فاي، ثم «إضافة إلى الشاشة الرئيسية»:<div class="num text-sm mt-1 select-all" dir="ltr">http://${esc(i.ips[0])}:${esc(i.port)}/w/#k=${esc(i.key)}</div></div>` : ''}
       ${i.serverError ? `<p class="text-rose-400 text-xs mt-2">${esc(i.serverError)}</p>` : ''}
       <p class="text-[11px] text-slate-400 mt-2 leading-relaxed">في كل جهاز فرعي: الإعدادات ← التشغيل على عدة أجهزة ← جهاز فرعي، ثم أدخل عنوان هذا الجهاز ومفتاح الربط. إن لم يتصل فاسمح للبرنامج في جدار حماية ويندوز (الشبكات الخاصة).</p>`;
   },

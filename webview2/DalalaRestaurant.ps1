@@ -140,6 +140,7 @@ function global:Start-Servers($Net) {
         if (-not $Net.key) { $Net.key = [DalalaRestaurant.NetServer]::NewKey(); Save-NetConfig $Net }
         $dir = Join-Path $global:DataDir 'shared'
         $global:NetSrv = [DalalaRestaurant.NetServer]::new([int]$Net.port, [string]$Net.key, $dir, $null)
+        try { $global:NetSrv.WebRoot = (Join-Path $web 'waiter') } catch {}
         try { $global:NetSrv.Listen(); Write-AppError 'net server' ('listening on port ' + $Net.port) } catch {
             Write-AppError 'net server FAILED' ($_ | Out-String)
             $global:NetErr = $_.Exception.Message

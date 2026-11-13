@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="النادل">
+<meta name="theme-color" content="#0f172a">
+<link rel="manifest" href="manifest.webmanifest">
+<title>تطبيق النادل — دلالة</title>
+<style>
+:root{--bg:#0b1220;--card:#162033;--card2:#1e2b44;--line:#2a3a5a;--tx:#e8eef9;--mut:#8fa1c0;--pri:#0ea5e9;--ok:#10b981;--warn:#f59e0b;--bad:#f43f5e}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,"Segoe UI",Tahoma,sans-serif;font-size:16px;overscroll-behavior:none}
+body{padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+button{font:inherit;color:inherit;border:0;cursor:pointer;touch-action:manipulation}
+input,textarea{font:inherit;color:var(--tx);background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:12px 14px;width:100%}
+#app{height:100%;display:flex;flex-direction:column}
+.bar{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--card);border-bottom:1px solid var(--line)}
+.bar h1{font-size:18px;margin:0;flex:1}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--bad)}.dot.on{background:var(--ok)}
+.btn{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:12px 16px;font-weight:700;min-height:46px}
+.btn.pri{background:var(--pri);border-color:var(--pri);color:#fff}.btn.ok{background:var(--ok);border-color:var(--ok);color:#fff}.btn.warn{background:var(--warn);border-color:var(--warn);color:#201400}.btn.bad{background:transparent;border-color:var(--bad);color:var(--bad)}
+.btn:disabled{opacity:.45}
+.main{flex:1;overflow:auto;padding:14px;-webkit-overflow-scrolling:touch}
+.center{max-width:420px;margin:8vh auto 0;text-align:center}
+.zone{color:var(--mut);font-size:13px;margin:14px 2px 8px}
+.tables{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:10px}
+.tbl{background:var(--card);border:2px solid var(--line);border-radius:16px;min-height:88px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+.tbl b{font-size:24px}.tbl small{color:var(--mut);font-size:12px}
+.tbl.busy{border-color:var(--warn);background:#2a2412}.tbl.bill{border-color:var(--pri);background:#0c2536}
+.pin{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px}
+.pin button{background:var(--card);border:1px solid var(--line);border-radius:16px;font-size:24px;font-weight:700;height:64px}
+.users{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:14px 0}
+.chip{padding:10px 16px;border-radius:99px;background:var(--card);border:1px solid var(--line);white-space:nowrap}.chip.sel{background:var(--pri);border-color:var(--pri);color:#fff}
+.split{display:flex;flex:1;min-height:0}
+.menu{flex:1;display:flex;flex-direction:column;min-width:0}
+.cats{display:flex;gap:8px;overflow-x:auto;padding:10px 12px;border-bottom:1px solid var(--line)}
+.prods{flex:1;overflow:auto;padding:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;align-content:start}
+.prod{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px;text-align:start;min-height:84px;display:flex;flex-direction:column;justify-content:space-between;gap:6px;position:relative}
+.prod b{font-size:15px;line-height:1.3}.prod span{color:var(--ok);font-weight:700}
+.prod .q{position:absolute;bottom:6px;inset-inline-start:6px;background:var(--pri);border-radius:99px;min-width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px}
+.prod img{width:100%;height:60px;object-fit:cover;border-radius:10px}
+.cart{width:340px;max-width:44%;border-inline-start:1px solid var(--line);display:flex;flex-direction:column;background:var(--card)}
+.cart .list{flex:1;overflow:auto;padding:10px}
+.line{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
+.line .n{flex:1;min-width:0}.line .n small{display:block;color:var(--mut)}
+.qty{display:flex;align-items:center;gap:6px}.qty button{width:38px;height:38px;border-radius:10px;background:var(--card2);border:1px solid var(--line);font-size:20px;font-weight:700}
+.sent{opacity:.65}
+.foot{padding:10px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+.tot{display:flex;justify-content:space-between;font-weight:800;font-size:18px}
+.row{display:flex;gap:8px}.row>*{flex:1}
+.toast{position:fixed;bottom:calc(18px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);background:#000c;border:1px solid var(--line);padding:12px 18px;border-radius:14px;z-index:50;max-width:90%}
+.modal{position:fixed;inset:0;background:#000a;display:flex;align-items:flex-end;justify-content:center;z-index:40}
+.modal>div{background:var(--card);width:100%;max-width:520px;border-radius:20px 20px 0 0;padding:18px;max-height:88%;overflow:auto}
+@media(min-width:700px){.modal{align-items:center}.modal>div{border-radius:20px}}
+.mut{color:var(--mut)}.hide{display:none!important}
+@media(max-width:699px){.split{flex-direction:column}.cart{width:auto;max-width:none;border-inline-start:0;border-top:2px solid var(--line);max-height:46%}.prods{grid-template-columns:repeat(auto-fill,minmax(110px,1fr))}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+'use strict';
+/* تطبيق النادل — يعمل على الهاتف/الآيباد من متصفح الجهاز، ويتصل بجهاز الكاشير الرئيسي عبر الواي فاي.
+   الطلبات تُحفظ في قاعدة بيانات الكاشير وتُطبع تذكرة المطبخ هناك تلقائيًا. */
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const clone = o => JSON.parse(JSON.stringify(o));
+const LS = { get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* ignore */ } }, del(k) { try { localStorage.removeItem(k); } catch (e) { /* ignore */ } } };
+
+const W = {
+  key: LS.get('w_key', ''), data: LS.get('w_cache', null), version: LS.get('w_ver', 0), user: null,
+  queue: LS.get('w_queue', []), online: false, clientId: LS.get('w_cid', null), view: 'boot',
+  table: null, cart: [], cat: 'all', q: '', note: '', pinUser: null, pin: '', base: ''
+};
+if (!W.clientId) { W.clientId = uid(); LS.set('w_cid', W.clientId); }
+const S = () => (W.data && W.data.settings) || {};
+const dec = () => (S().decimals == null ? 2 : S().decimals);
+const money = n => (+n || 0).toFixed(dec()) + ' ' + (S().currency || '');
+const round = n => { const f = Math.pow(10, dec()); return Math.round((+n || 0) * f) / f; };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+/* ---------- الاتصال ---------- */
+async function req(path, { method = 'GET', body, timeout = 8000 } = {}) {
+  const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), timeout);
+  try {
+    const res = await fetch(W.base + path, { method, headers: { 'x-dalala-key': W.key, 'x-dalala-client': W.clientId, 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined, signal: ctl.signal, cache: 'no-store' });
+    if (res.status === 401) { const e = new Error('مفتاح الربط غير صحيح'); e.auth = true; throw e; }
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return await res.json();
+  } finally { clearTimeout(tm); }
+}
+function applyEntries(entries) {
+  const d = W.data; let n = 0;
+  for (const e of entries) for (const op of e.ops) {
+    if (op.obj) {
+      if (op.value && typeof op.value === 'object') d[op.obj] = op.value;
+      else { const o = d[op.obj] = Object.assign({}, d[op.obj] || {}, op.patch || {}); (op.unset || []).forEach(k => delete o[k]); }
+      n++; continue;
+    }
+    let arr = Array.isArray(d[op.col]) ? d[op.col] : (d[op.col] = []);
+    if (op.del && op.del.length) { const ds = new Set(op.del); arr = d[op.col] = arr.filter(r => !ds.has(r.id)); }
+    const idx = new Map(arr.map((r, i) => [r.id, i]));
+    for (const r of op.put || []) { if (idx.has(r.id)) arr[idx.get(r.id)] = r; else { idx.set(r.id, arr.length); arr.push(r); } }
+    n++;
+  }
+  return n;
+}
+const saveCache = () => { LS.set('w_cache', W.data); LS.set('w_ver', W.version); };
+async function snapshot() {
+  const s = await req('/api/snapshot', { timeout: 30000 });
+  if (s.data && s.data.settings) { W.data = s.data; W.version = s.version; saveCache(); }
+}
+async function pull(wait) {
+  const r = await req(`/api/changes?since=${W.version}&wait=${wait ? 1 : 0}&name=${encodeURIComponent('نادل ' + (W.user ? W.user.name : ''))}`, { timeout: wait ? 35000 : 10000 });
+  W.online = true;
+  if (r.reset) { await snapshot(); return true; }
+  let ch = false;
+  if (r.entries && r.entries.length) { ch = applyEntries(r.entries) > 0; }
+  W.version = r.version; saveCache(); return ch;
+}
+let polling = false;
+async function pollLoop() {
+  if (polling) return; polling = true;
+  for (;;) {
+    try { const ch = await pull(true); setDot(); if (ch) rerender(); await flush(); }
+    catch (e) { W.online = false; setDot(); if (e.auth) { W.key = ''; LS.del('w_key'); go('key'); polling = false; return; } await sleep(3000); }
+  }
+}
+function setDot() { document.querySelectorAll('.dot').forEach(d => d.classList.toggle('on', W.online)); const q = $('#qn'); if (q) q.textContent = W.queue.length ? W.queue.length + ' بانتظار الإرسال' : ''; }
+
+/* ---------- العمليات (تُحفظ محليًا وتُرسل عند توفر الاتصال) ---------- */
+const openOf = tid => ((W.data && W.data.open) || []).find(o => o.tableId === tid && o.type === 'dine');
+const tableName = id => { const t = ((W.data && W.data.tables) || []).find(x => x.id === id); return t ? t.name : '-'; };
+function dayKey(ms) { const d = new Date(ms), p = n => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); }
+function nextDailyNo(at) {
+  const k = dayKey(at); let m = 0; const d = W.data;
+  for (const o of (d.open || []).concat(d.orders || [])) if (o.dailyNo && dayKey(o.openedAt || o.createdAt || o.date || at) === k) m = Math.max(m, +o.dailyNo || 0);
+  const dn = S().dailyNo; if (dn && dn.day === k) m = Math.max(m, +dn.n || 0);
+  return m + 1;
+}
+function enqueue(it) { it.iid = it.iid || uid(); it.at = it.at || Date.now(); it.by = W.user ? W.user.name : ''; W.queue.push(it); LS.set('w_queue', W.queue); setDot(); flush(); }
+let flushing = false;
+async function flush() {
+  if (flushing || !W.queue.length || !W.key) return; flushing = true;
+  try {
+    while (W.queue.length) {
+      await pull(false);                          // أحدث نسخة قبل الدمج حتى لا يضيع طلب نادل آخر
+      const it = W.queue[0]; const ops = build(it);
+      if (ops && ops.length) await req('/api/apply', { method: 'POST', body: { ops }, timeout: 30000 });
+      W.queue.shift(); LS.set('w_queue', W.queue); await pull(false);
+    }
+    W.online = true; setDot(); rerender();
+  } catch (e) { W.online = false; setDot(); if (!e.auth) setTimeout(flush, 4000); }
+  flushing = false;
+}
+function build(it) {
+  const d = W.data;
+  if (it.kind === 'send') {
+    if ((d.tickets || []).some(t => t.id === it.iid)) return null;          // وصل سابقًا (انقطع الرد فقط)
+    let o = openOf(it.tableId); const tItems = [];
+    if (!o) o = { id: uid(), type: 'dine', tableId: it.tableId, items: [], discount: { type: 'pct', value: 0 }, customer: { name: '', phone: '', address: '' }, deliveryFee: S().deliveryFee || 0, note: '', createdAt: it.at, dailyNo: nextDailyNo(it.at), userName: it.by };
+    else o = clone(o);
+    for (const x of it.items) {
+      const p = (d.products || []).find(q => q.id === x.pid); if (!p) continue;
+      const note = x.note || '';
+      const line = o.items.find(l => l.pid === p.id && (l.note || '') === note && l.price === p.price && (l.sent || 0) >= l.qty);
+      if (line) { line.qty += x.qty; line.sent = line.qty; }
+      else o.items.push({ pid: p.id, name: p.name, price: p.price, cost: p.cost || 0, qty: x.qty, note, sent: x.qty, kitchen: p.kitchen !== false });
+      if (p.kitchen !== false) tItems.push({ name: p.name, qty: x.qty, note });
+    }
+    if (!tItems.length && !it.items.length) return null;
+    const ops = [{ col: 'open', put: [o] }];
+    if (tItems.length) ops.push({ col: 'tickets', put: [{ id: it.iid, orderId: o.id, label: 'طاولة ' + tableName(it.tableId), type: 'dine', dailyNo: o.dailyNo, items: tItems, note: it.note || '', at: it.at, done: false, user: it.by, src: 'waiter', printed: false }] });
+    return ops;
+  }
+  const o = (d.open || []).find(x => x.id === it.orderId); if (!o) return null;   // دُفع أو أُلغي
+  const n = clone(o);
+  if (it.kind === 'bill') n.billReq = it.at;
+  if (it.kind === 'pay') n.payReq = { method: it.method, at: it.at, by: it.by, iid: it.iid };
+  return [{ col: 'open', put: [n] }];
+}
+
+/* ---------- الواجهة ---------- */
+function go(v) { W.view = v; render(); }
+function rerender() { if (W.view === 'tables' || W.view === 'table') { if (W.view === 'tables' || !W._typing) render(); } }
+function toast(t) { const e = document.createElement('div'); e.className = 'toast'; e.textContent = t; document.body.appendChild(e); setTimeout(() => e.remove(), 2400); }
+function render() {
+  const a = $('#app');
+  if (W.view === 'key') return a.innerHTML = `<div class="main"><div class="center"><h2>ربط التطبيق بالكاشير</h2><p class="mut">اكتب مفتاح الربط الظاهر في إعدادات الكاشير (التشغيل على عدة أجهزة)</p><input id="kin" dir="ltr" placeholder="XXXX-XXXX" autocapitalize="characters" style="text-align:center;font-size:22px;letter-spacing:3px"><p><button class="btn pri" style="width:100%" id="kok">اتصال</button></p><p id="kerr" style="color:var(--bad)"></p></div></div>`, $('#kok').onclick = async () => { W.key = $('#kin').value.trim().toUpperCase(); try { await snapshot(); LS.set('w_key', W.key); boot(); } catch (e) { $('#kerr').textContent = e.auth ? 'المفتاح غير صحيح' : 'تعذر الاتصال بالكاشير: ' + e.message; } };
+  if (W.view === 'boot') return a.innerHTML = '<div class="main"><div class="center"><h2>جارٍ الاتصال بالكاشير…</h2></div></div>';
+  if (W.view === 'login') return renderLogin(a);
+  if (W.view === 'tables') return renderTables(a);
+  if (W.view === 'table') return renderTable(a);
+}
+function renderLogin(a) {
+  const us = ((W.data && W.data.users) || []).filter(u => u.active !== false);
+  a.innerHTML = `<div class="main"><div class="center"><h2>${esc(S().name || 'تطبيق النادل')}</h2><p class="mut">اختر اسمك ثم اكتب الرقم السري</p><div class="users">${us.map(u => `<button class="chip ${W.pinUser === u.id ? 'sel' : ''}" data-u="${u.id}">${esc(u.name)}</button>`).join('')}</div>
+    <div dir="ltr" style="font-size:30px;letter-spacing:10px;height:44px">${'●'.repeat(W.pin.length)}</div>
+    <div class="pin" dir="ltr">${[1, 2, 3, 4, 5, 6, 7, 8, 9, '⌫', 0, '✓'].map(k => `<button data-k="${k}">${k}</button>`).join('')}</div>
+    <p><span class="dot ${W.online ? 'on' : ''}" style="display:inline-block"></span> <span class="mut" style="font-size:13px">${W.online ? 'متصل' : 'غير متصل'}</span> · <button class="btn" id="chg" style="min-height:34px;padding:4px 10px;font-size:13px">تغيير مفتاح الربط</button></p></div></div>`;
+  a.querySelectorAll('[data-u]').forEach(b => b.onclick = () => { W.pinUser = b.dataset.u; W.pin = ''; render(); });
+  a.querySelectorAll('[data-k]').forEach(b => b.onclick = () => {
+    const k = b.dataset.k;
+    if (k === '⌫') W.pin = W.pin.slice(0, -1); else if (k === '✓') return tryLogin(); else if (W.pin.length < 8) W.pin += k;
+    render(); const u = (S() && W.data.users.find(x => x.id === W.pinUser)); if (u && W.pin === String(u.pin)) tryLogin();
+  });
+  $('#chg').onclick = () => { LS.del('w_key'); W.key = ''; go('key'); };
+}
+function tryLogin() {
+  const u = W.data.users.find(x => x.id === W.pinUser);
+  if (!u) return toast('اختر اسمك أولًا');
+  if (String(u.pin) !== W.pin) { W.pin = ''; render(); return toast('الرقم السري غير صحيح'); }
+  W.user = u; LS.set('w_user', u.id); W.pin = ''; go('tables');
+}
+function renderTables(a) {
+  const tbs = W.data.tables || []; const zones = [...new Set(tbs.map(t => t.zone || 'الصالة'))];
+  a.innerHTML = `<div class="bar"><span class="dot ${W.online ? 'on' : ''}"></span><h1>الطاولات</h1><small id="qn" class="mut"></small><span class="mut">${esc(W.user.name)}</span><button class="btn" id="out">خروج</button></div>
+  <div class="main">${zones.map(z => `<div class="zone">${esc(z)}</div><div class="tables">${tbs.filter(t => (t.zone || 'الصالة') === z).map(t => { const o = openOf(t.id); const tot = o ? calc(o).total : 0; return `<button class="tbl ${o ? (o.billReq ? 'bill' : 'busy') : ''}" data-t="${t.id}"><b>${esc(t.name)}</b><small>${o ? money(tot) : 'فارغة'}</small>${o && o.billReq ? '<small>طلب فاتورة</small>' : ''}</button>`; }).join('')}</div>`).join('') || '<p class="mut">لا توجد طاولات</p>'}</div>`;
+  a.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { W.table = b.dataset.t; W.cart = []; W.cat = 'all'; W.q = ''; W.note = ''; go('table'); });
+  $('#out').onclick = () => { W.user = null; LS.del('w_user'); go('login'); }; setDot();
+}
+function calc(o) {
+  const s = S(); const sub = round(o.items.reduce((x, i) => x + i.price * i.qty, 0));
+  let disc = 0; if (o.discount && o.discount.value > 0) disc = o.discount.type === 'pct' ? sub * o.discount.value / 100 : o.discount.value;
+  disc = round(Math.min(disc, sub)); const after = sub - disc;
+  const service = round((s.serviceRate > 0 && (!s.serviceDineOnly || o.type === 'dine')) ? after * s.serviceRate / 100 : 0);
+  const tax = round(s.taxRate > 0 ? (after + service) * s.taxRate / 100 : 0);
+  return { total: round(after + service + tax + (o.type === 'delivery' ? (+o.deliveryFee || 0) : 0)) };
+}
+function renderTable(a) {
+  const sc = {}; ['.prods', '.cats', '.cart .list'].forEach(k => { const e = $(k); if (e) sc[k] = [e.scrollTop, e.scrollLeft]; });
+  const d = W.data, o = openOf(W.table), cats = d.categories || [];
+  const prods = (d.products || []).filter(p => p.active !== false && (W.cat === 'all' || p.catId === W.cat) && (!W.q || p.name.toLowerCase().includes(W.q.toLowerCase())));
+  const inCart = pid => W.cart.filter(c => c.pid === pid).reduce((x, c) => x + c.qty, 0);
+  const cartTotal = W.cart.reduce((x, c) => x + c.price * c.qty, 0);
+  a.innerHTML = `<div class="bar"><button class="btn" id="back">‹ رجوع</button><h1>طاولة ${esc(tableName(W.table))}</h1><small id="qn" class="mut"></small><span class="dot ${W.online ? 'on' : ''}"></span></div>
+  <div class="split"><div class="menu"><div style="padding:10px 12px 0"><input id="srch" placeholder="بحث عن صنف…" value="${esc(W.q)}"></div>
+    <div class="cats"><button class="chip ${W.cat === 'all' ? 'sel' : ''}" data-c="all">الكل</button>${cats.map(c => `<button class="chip ${W.cat === c.id ? 'sel' : ''}" data-c="${c.id}">${esc(c.name)}</button>`).join('')}</div>
+    <div class="prods">${prods.map(p => `<button class="prod" data-p="${p.id}">${inCart(p.id) ? `<span class="q">${inCart(p.id)}</span>` : ''}${p.image && S().showImages ? `<img src="${esc(p.image)}" alt="">` : ''}<b>${esc(p.name)}</b><span>${money(p.price)}</span></button>`).join('') || '<p class="mut">لا توجد أصناف</p>'}</div></div>
+  <div class="cart"><div class="list">
+    ${o && o.items.length ? `<div class="mut" style="font-size:13px;margin-bottom:4px">مُرسل سابقًا</div>${o.items.map(i => `<div class="line sent"><div class="n">${esc(i.name)}${i.note ? `<small>» ${esc(i.note)}</small>` : ''}</div><b>× ${i.qty}</b></div>`).join('')}<div class="tot" style="margin:8px 0"><span>الحساب الحالي</span><span>${money(calc(o).total)}</span></div><hr style="border-color:var(--line)">` : ''}
+    <div class="mut" style="font-size:13px;margin:6px 0">طلب جديد</div>
+    ${W.cart.length ? W.cart.map((c, i) => `<div class="line"><div class="n">${esc(c.name)}<small>${money(c.price * c.qty)}</small>${c.note ? `<small>» ${esc(c.note)}</small>` : ''}<button class="btn" data-n="${i}" style="min-height:30px;padding:2px 10px;font-size:13px;margin-top:4px">ملاحظة</button></div><div class="qty"><button data-m="${i}">−</button><b>${c.qty}</b><button data-a="${i}">+</button></div></div>`).join('') : '<p class="mut">اضغط على الأصناف لإضافتها</p>'}
+  </div><div class="foot">
+    ${W.cart.length ? `<input id="onote" placeholder="ملاحظة للمطبخ (اختياري)" value="${esc(W.note)}"><div class="tot"><span>الجديد</span><span>${money(cartTotal)}</span></div><button class="btn ok" id="send">إرسال للمطبخ</button>` : ''}
+    ${o ? `<div class="row"><button class="btn pri" id="bill">${o.billReq ? 'إعادة طباعة الفاتورة' : 'طلب الفاتورة'}</button><button class="btn warn" id="pay">دفع</button></div>` : ''}
+  </div></div></div>`;
+  $('#back').onclick = () => go('tables');
+  $('#srch').oninput = e => { W.q = e.target.value; W._typing = true; const pos = e.target.selectionStart; render(); const s = $('#srch'); s.focus(); s.setSelectionRange(pos, pos); W._typing = false; };
+  a.querySelectorAll('[data-c]').forEach(b => b.onclick = () => { W.cat = b.dataset.c; render(); });
+  a.querySelectorAll('[data-p]').forEach(b => b.onclick = () => { const p = d.products.find(x => x.id === b.dataset.p); const c = W.cart.find(x => x.pid === p.id && !x.note); if (c) c.qty++; else W.cart.push({ pid: p.id, name: p.name, price: p.price, qty: 1, note: '' }); if (navigator.vibrate) navigator.vibrate(15); render(); });
+  a.querySelectorAll('[data-a]').forEach(b => b.onclick = () => { W.cart[+b.dataset.a].qty++; render(); });
+  a.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { const i = +b.dataset.m; if (--W.cart[i].qty <= 0) W.cart.splice(i, 1); render(); });
+  a.querySelectorAll('[data-n]').forEach(b => b.onclick = () => askNote(+b.dataset.n));
+  const on = $('#onote'); if (on) on.oninput = e => { W.note = e.target.value; };
+  const snd = $('#send'); if (snd) snd.onclick = () => {
+    enqueue({ kind: 'send', tableId: W.table, items: W.cart.map(c => ({ pid: c.pid, qty: c.qty, note: c.note })), note: W.note });
+    W.cart = []; W.note = ''; toast('تم الإرسال للمطبخ ✓'); go('tables');
+  };
+  const bl = $('#bill'); if (bl) bl.onclick = () => { if (W.cart.length) return toast('أرسل الطلب الجديد أولًا'); enqueue({ kind: 'bill', orderId: o.id }); toast('تم طلب طباعة الفاتورة'); go('tables'); };
+  const py = $('#pay'); if (py) py.onclick = () => { if (W.cart.length) return toast('أرسل الطلب الجديد أولًا'); askPay(o); };
+  for (const k in sc) { const e = $(k); if (e) { e.scrollTop = sc[k][0]; e.scrollLeft = sc[k][1]; } }
+  setDot();
+}
+function modal(html) { const m = document.createElement('div'); m.className = 'modal'; m.innerHTML = '<div>' + html + '</div>'; m.onclick = e => { if (e.target === m) m.remove(); }; document.body.appendChild(m); return m; }
+function askNote(i) {
+  const c = W.cart[i]; const presets = ['بدون سكر', 'سكر زيادة', 'بدون بصل', 'حار', 'بدون ثلج', 'للأخذ'];
+  const m = modal(`<h3>ملاحظة: ${esc(c.name)}</h3><div class="users" style="justify-content:flex-start">${presets.map(p => `<button class="chip" data-pp="${p}">${p}</button>`).join('')}</div><input id="nt" value="${esc(c.note)}" placeholder="اكتب ملاحظة"><p class="row"><button class="btn" id="nc">إلغاء</button><button class="btn pri" id="ns">حفظ</button></p>`);
+  m.querySelectorAll('[data-pp]').forEach(b => b.onclick = () => { const v = $('#nt', m); v.value = (v.value ? v.value + '، ' : '') + b.dataset.pp; });
+  $('#nc', m).onclick = () => m.remove();
+  $('#ns', m).onclick = () => { c.note = $('#nt', m).value.trim(); const same = W.cart.find((x, j) => j !== i && x.pid === c.pid && x.note === c.note); if (same) { same.qty += c.qty; W.cart.splice(i, 1); } m.remove(); render(); };
+}
+function askPay(o) {
+  const t = calc(o).total;
+  const m = modal(`<h3>دفع طاولة ${esc(tableName(o.tableId))}</h3><div class="tot" style="margin:10px 0 16px"><span>الإجمالي</span><span>${money(t)}</span></div><p class="mut" style="font-size:13px">يُسجَّل الدفع في الكاشير وتُطبع الفاتورة هناك.</p><div class="row"><button class="btn ok" data-m="cash">نقدي</button><button class="btn pri" data-m="card">بطاقة</button></div><p><button class="btn" id="pc" style="width:100%">إلغاء</button></p>`);
+  $('#pc', m).onclick = () => m.remove();
+  m.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { enqueue({ kind: 'pay', orderId: o.id, method: b.dataset.m }); m.remove(); toast('تم إرسال طلب الدفع للكاشير'); go('tables'); });
+}
+
+/* ---------- البدء ---------- */
+async function boot() {
+  go('boot');
+  const h = /[#&]k=([A-Za-z0-9-]+)/.exec(location.hash); if (h) { W.key = h[1].toUpperCase(); LS.set('w_key', W.key); history.replaceState(null, '', location.pathname); }
+  if (!W.key) return go('key');
+  try { await snapshot(); W.online = true; } catch (e) { if (e.auth) { W.key = ''; LS.del('w_key'); return go('key'); } W.online = false; }
+  if (!W.data) { W.view = 'boot'; $('#app').innerHTML = '<div class="main"><div class="center"><h2>تعذر الاتصال بالكاشير</h2><p class="mut">تأكد أن الهاتف على نفس شبكة الواي فاي وأن الكاشير يعمل.</p><button class="btn pri" onclick="boot()">إعادة المحاولة</button></div></div>'; return; }
+  const uidSaved = LS.get('w_user', null); const u = uidSaved && W.data.users.find(x => x.id === uidSaved);
+  if (u) W.user = u;
+  go(W.user ? 'tables' : 'login'); pollLoop(); flush();
+}
+window.addEventListener('online', () => flush());
+setInterval(() => { if (W.queue.length) flush(); }, 5000);
+boot();
+</script>
+</body>
+</html>

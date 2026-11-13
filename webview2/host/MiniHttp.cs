@@ -37,7 +37,7 @@ namespace DalalaRestaurant
             if (body != null && body.Length > 0) s.Write(body, 0, body.Length);
             s.Flush();
         }
-        static string Reason(int c) { switch (c) { case 200: return "OK"; case 204: return "No Content"; case 400: return "Bad Request"; case 401: return "Unauthorized"; case 404: return "Not Found"; case 409: return "Conflict"; case 500: return "Server Error"; default: return "OK"; } }
+        static string Reason(int c) { switch (c) { case 200: return "OK"; case 204: return "No Content"; case 302: return "Found"; case 400: return "Bad Request"; case 401: return "Unauthorized"; case 404: return "Not Found"; case 409: return "Conflict"; case 500: return "Server Error"; default: return "OK"; } }
     }
 
     /// <summary>Very small HTTP/1.1 server (one thread per connection, Connection: close). No URL ACL / admin rights needed.</summary>

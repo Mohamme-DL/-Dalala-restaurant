@@ -1195,7 +1195,7 @@ const POS = {
       };
     });
   },
-  finalize(o, c, pay, tendered, change) {
+  finalize(o, c, pay, tendered, change, by) {
     const sh = Shift.current(), s = S();
     if (!o.id) { o.id = uid(); o.createdAt = Date.now(); o.dailyNo = nextDailyNo(); o.userName = App.user.name; }
     this.sendKitchen(o); // anything not yet sent
@@ -1205,8 +1205,9 @@ const POS = {
       discount: o.discount, customer: o.customer, note: o.note,
       subtotal: c.subtotal, discountAmt: c.discountAmt, service: c.service, tax: c.tax, delivery: c.delivery, total: c.total,
       pay, tendered, change, method: pay.card && pay.cash ? 'split' : pay.card ? 'card' : 'cash',
-      userId: App.user.id, userName: App.user.name, shiftId: sh ? sh.id : null, status: 'paid'
+      userId: by ? by.id : App.user.id, userName: by ? by.name : App.user.name, shiftId: sh ? sh.id : null, status: 'paid'
     };
+    delete o.billReq; delete o.payReq;
     DB.orders.push(inv);
     DB.open = DB.open.filter(x => x.id !== o.id);
     // stock
@@ -1215,6 +1216,7 @@ const POS = {
     logAct('فاتورة', '#' + inv.no + ' — ' + money(inv.total));
     Store.saveNow();
     if (s.autoPrint) Printer.receipt(inv);
+    if (by) { beep(1320, .08); toast(`دفع من النادل ${by.name} — ${orderLabel(o)} — ${money(inv.total)}`, 'success'); App.refresh(); return inv; }
     this.cur = this.blank(o.type); this.tendered = ''; this.sel = null; this.toggleCart(false); this.render();
     beep(1320, .08);
     if (isQuick() && !S().quickPopup) {
