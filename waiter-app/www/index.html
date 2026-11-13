@@ -1,0 +1,23 @@
+<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover"><title>نادل دلالة</title>
+<style>*{box-sizing:border-box}html,body{margin:0;height:100%;background:#0b1220;color:#e8eef9;font-family:system-ui,-apple-system,"Segoe UI",Tahoma,sans-serif}
+body{display:flex;align-items:center;justify-content:center;padding:env(safe-area-inset-top) 16px env(safe-area-inset-bottom)}
+.box{width:100%;max-width:420px;text-align:center}h1{margin:0 0 6px}p{color:#8fa1c0;margin:6px 0 18px}
+input{width:100%;font:inherit;color:inherit;background:#1e2b44;border:1px solid #2a3a5a;border-radius:12px;padding:14px;margin:6px 0;text-align:center;font-size:18px}
+button{width:100%;font:inherit;font-weight:700;border:0;border-radius:12px;padding:14px;margin-top:10px;background:#0ea5e9;color:#fff;font-size:17px}
+button.g{background:#1e2b44;border:1px solid #2a3a5a;color:#e8eef9}#err{color:#f43f5e;min-height:22px;margin-top:10px}</style></head>
+<body><div class="box"><h1>نادل دلالة</h1><p id="msg">اكتب عنوان جهاز الكاشير ومفتاح الربط (من إعدادات الكاشير ← التشغيل على عدة أجهزة)</p>
+<div id="form"><input id="ip" dir="ltr" inputmode="decimal" placeholder="عنوان الكاشير  مثال 192.168.1.5"><input id="port" dir="ltr" inputmode="numeric" placeholder="المنفذ" value="47630">
+<input id="key" dir="ltr" autocapitalize="characters" placeholder="مفتاح الربط XXXX-XXXX"><button id="go">اتصال</button></div>
+<div id="auto" style="display:none"><button class="g" id="chg">تغيير العنوان</button></div><div id="err"></div></div>
+<script>
+var $=function(i){return document.getElementById(i)},LS=window.localStorage;
+function cfg(){try{return JSON.parse(LS.getItem('dalala_cfg')||'null')}catch(e){return null}}
+function ping(c){var ctl=new AbortController(),t=setTimeout(function(){ctl.abort()},4000);
+ return fetch('http://'+c.ip+':'+c.port+'/api/ping',{signal:ctl.signal,cache:'no-store'}).then(function(r){return r.json()}).then(function(j){clearTimeout(t);if(!j||j.app!=='dalala')throw new Error('x');return j}).catch(function(){clearTimeout(t);throw new Error('تعذر الاتصال بالكاشير — تأكد من الواي فاي والعنوان')})}
+function open(c){location.href='http://'+c.ip+':'+c.port+'/w/#k='+encodeURIComponent(c.key)}
+function connect(c){$('err').textContent='';$('msg').textContent='جارٍ الاتصال…';return ping(c).then(function(j){if(j.keyOk===false){throw new Error('مفتاح الربط غير صحيح')}LS.setItem('dalala_cfg',JSON.stringify(c));open(c)}).catch(function(e){$('msg').textContent='تعذر الاتصال';$('form').style.display='';$('auto').style.display='none';$('err').textContent=e.message})}
+$('go').onclick=function(){var c={ip:$('ip').value.trim(),port:+$('port').value||47630,key:$('key').value.trim().toUpperCase()};if(!c.ip||!c.key){$('err').textContent='أدخل العنوان والمفتاح';return}connect(c)};
+$('chg').onclick=function(){$('form').style.display='';$('auto').style.display='none';$('msg').textContent='عدّل البيانات ثم اضغط اتصال'};
+var s=cfg();if(s){$('ip').value=s.ip;$('port').value=s.port;$('key').value=s.key;if(location.hash!=='#change'){$('form').style.display='none';$('auto').style.display='';connect(s)}}
+</script></body></html>

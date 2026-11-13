@@ -209,7 +209,7 @@ function renderLogin(a) {
     if (k === '⌫') W.pin = W.pin.slice(0, -1); else if (k === '✓') return tryLogin(); else if (W.pin.length < 8) W.pin += k;
     render(); const u = (S() && W.data.users.find(x => x.id === W.pinUser)); if (u && W.pin === String(u.pin)) tryLogin();
   });
-  $('#chg').onclick = () => { LS.del('w_key'); W.key = ''; go('key'); };
+  $('#chg').onclick = () => { if (/DalalaWaiterApp/.test(navigator.userAgent)) { location.href = (/Android/.test(navigator.userAgent) ? 'https://localhost/' : 'capacitor://localhost/') + '#change'; return; } LS.del('w_key'); W.key = ''; go('key'); };
 }
 function tryLogin() {
   const u = W.data.users.find(x => x.id === W.pinUser);
