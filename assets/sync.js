@@ -232,6 +232,11 @@ function netBadge() {
 
 /* settings: choose standalone / main / branch device */
 const Net = {
+  copy(text) {
+    const ok = () => toast('تم نسخ الرابط ✓', 'success');
+    const fallback = () => { try { const t = document.createElement('textarea'); t.value = text; t.style.position = 'fixed'; t.style.opacity = '0'; document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove(); ok(); } catch (e) { toast('تعذّر النسخ — حدّد الرابط وانسخه يدويًا', 'warning'); } };
+    try { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(ok, fallback); else fallback(); } catch (e) { fallback(); }
+  },
   card() {
     if (!window.dalalaNet || !App.isAdmin()) return '';
     const c = NETCFG, m = c.mode || 'local';
@@ -275,7 +280,9 @@ const Net = {
         <div><div class="text-slate-400">مفتاح الربط</div><b class="num text-lg tracking-widest text-amber-300" dir="ltr">${esc(i.key || '—')}</b></div>
         <div><div class="text-slate-400">الأجهزة المتصلة</div><b class="text-sm">${clients.filter(x => x.online).length} متصل الآن</b></div></div>
       ${clients.length ? `<div class="mt-2 space-y-1">${clients.map(x => `<div class="flex justify-between items-center bg-slate-800/40 rounded-lg px-3 py-1.5 text-xs"><span><i class="fa-solid fa-computer text-slate-400"></i> <b>${esc(x.name || x.id.slice(0, 6))}</b> <span class="text-slate-500 num" dir="ltr">${esc(String(x.ip || '').replace('::ffff:', ''))} · ${fmtTime(x.lastSeen)}</span></span><span class="${x.online ? 'text-emerald-400' : 'text-slate-500'}">${x.online ? 'متصل' : 'غير متصل'}</span></div>`).join('')}</div>` : ''}
-      ${(i.ips || []).length ? `<div class="mt-3 bg-sky-500/10 border border-sky-500/30 rounded-xl p-3 text-xs leading-relaxed"><b class="text-sky-300">تطبيق النادل (هاتف / آيباد)</b><br>افتح هذا الرابط من متصفح الهاتف وهو على نفس شبكة الواي فاي، ثم «إضافة إلى الشاشة الرئيسية»:<div class="num text-sm mt-1 select-all" dir="ltr">http://${esc(i.ips[0])}:${esc(i.port)}/w/#k=${esc(i.key)}</div></div>` : ''}
+      ${(i.ips || []).length ? `<div class="mt-3 bg-sky-500/10 border border-sky-500/30 rounded-xl p-3 text-xs leading-relaxed"><b class="text-sky-300">تطبيق النادل (هاتف / آيباد)</b><br>افتح الرابط من متصفح الهاتف وهو على نفس شبكة الواي فاي، ثم «إضافة إلى الشاشة الرئيسية».
+        ${i.ips.slice(0, 4).map((ip, n) => { const u = `http://${ip}:${i.port}/w/#k=${i.key}`; return `<div class="flex items-center gap-2 mt-2"><button class="btn-primary text-xs shrink-0" onclick="Net.copy(this.dataset.u)" data-u="${esc(u)}"><i class="fa-solid fa-copy"></i> نسخ</button><span class="num text-sm select-all break-all" dir="ltr">${esc(u)}</span>${n === 0 ? '<span class="chip bg-emerald-500/15 text-emerald-300 border-emerald-500/30 shrink-0">الأنسب</span>' : ''}</div>`; }).join('')}
+        <div class="text-[11px] text-slate-400 mt-2">إن لم يفتح الأول جرّب الذي بعده (بعض العناوين وهمية من برامج مثل VMware).</div></div>` : ''}
       ${!NETSTATE.online ? `<p class="text-rose-400 text-xs mt-2">هذا الجهاز لا يصل إلى الخادم الداخلي <span dir="ltr" class="num">${esc(NETCFG.url)}</span> — ${esc(NETSTATE.error || 'لا رد')}</p>` : ''}
       ${i.serverError ? `<p class="text-rose-400 text-xs mt-2">${esc(i.serverError)}</p>` : ''}
       <p class="text-[11px] text-slate-400 mt-2 leading-relaxed">في كل جهاز فرعي: الإعدادات ← التشغيل على عدة أجهزة ← جهاز فرعي، ثم أدخل عنوان هذا الجهاز ومفتاح الربط. إن لم يتصل فاسمح للبرنامج في جدار حماية ويندوز (الشبكات الخاصة).</p>`;
