@@ -2087,7 +2087,7 @@ VIEWS.settings = (el) => {
     </div>
     <div class="card p-5 ${isQuick() ? 'hidden' : ''}" id="setTables"><h3 class="font-bold mb-4 flex justify-between items-center"><span><i class="fa-solid fa-chair text-rose-400"></i> الطاولات (${DB.tables.length})</span>
       <span class="flex gap-2"><button class="btn-ghost text-xs" onclick="Cfg.addTables()"><i class="fa-solid fa-plus"></i> إضافة طاولات</button></span></h3>
-      ${zones.map(z => `<div class="mb-3"><div class="text-xs text-slate-400 mb-1.5">${esc(z)}</div><div class="flex flex-wrap gap-1.5">${DB.tables.filter(t => (t.zone || 'الصالة') === z).map(t => `<button onclick="Cfg.editTable('${t.id}')" class="w-11 h-11 rounded-lg bg-slate-800 border border-slate-700 hover:border-sky-500 font-bold">${esc(t.name)}</button>`).join('')}</div></div>`).join('') || '<p class="text-slate-500 text-sm">لا توجد طاولات</p>'}
+      ${zones.map(z => `<div class="mb-3"><div class="text-xs text-slate-400 mb-1.5 flex items-center gap-2"><span>${esc(z)}</span><button class="text-sky-400 hover:text-sky-300" title="تعديل / حذف المنطقة" onclick="Cfg.editZone(this.dataset.z)" data-z="${esc(z)}"><i class="fa-solid fa-pen"></i></button></div><div class="flex flex-wrap gap-1.5">${DB.tables.filter(t => (t.zone || 'الصالة') === z).map(t => `<button onclick="Cfg.editTable('${t.id}')" class="w-11 h-11 rounded-lg bg-slate-800 border border-slate-700 hover:border-sky-500 font-bold">${esc(t.name)}</button>`).join('')}</div></div>`).join('') || '<p class="text-slate-500 text-sm">لا توجد طاولات</p>'}
     </div>
     <div class="card p-5"><h3 class="font-bold mb-4"><i class="fa-solid fa-database text-teal-400"></i> البيانات والنسخ الاحتياطي</h3>
       ${Backup.available() ? `${sw('autoBackup', 'نسخ احتياطي تلقائي يومي', 'نسخة كل يوم تُحدَّث كل 20 دقيقة، ويُحتفظ بآخر 30 يوماً')}
@@ -2424,6 +2424,17 @@ const Cfg = {
       let max = Math.max(0, ...DB.tables.map(t => parseInt(t.name) || 0));
       for (let i = 0; i < n; i++) DB.tables.push({ id: uid(), name: String(++max), zone: z, seats: 4 });
       Store.save(); Modal.close(); App.refresh();
+    };
+  },
+  editZone(z) {
+    const ts = DB.tables.filter(t => (t.zone || 'الصالة') === z);
+    const w = Modal.open(`<label class="lbl">اسم المنطقة</label><input class="inp" value="${esc(z)}" data-n>
+      <p class="text-xs text-slate-400 mt-2">عدد الطاولات: ${ts.length}. إذا كتبت اسم منطقة موجودة تُدمج الطاولات معها.</p>
+      <div class="flex gap-2 justify-between mt-5"><button class="btn-ghost text-rose-300" data-del><i class="fa-solid fa-trash"></i> حذف المنطقة وطاولاتها</button><div class="flex gap-2"><button class="btn-ghost" data-close>إلغاء</button><button class="btn-primary" data-ok>حفظ</button></div></div>`, { title: 'تعديل منطقة', icon: 'fa-layer-group', size: 'max-w-md' });
+    $('[data-ok]', w).onclick = () => { const n = $('[data-n]', w).value.trim() || 'الصالة'; ts.forEach(t => t.zone = n); Store.save(); Modal.close(); App.refresh(); };
+    $('[data-del]', w).onclick = () => {
+      if (ts.some(t => DB.open.some(o => o.tableId === t.id))) return toast('توجد طاولات في هذه المنطقة عليها طلبات مفتوحة', 'error');
+      const ids = new Set(ts.map(t => t.id)); DB.tables = DB.tables.filter(t => !ids.has(t.id)); Store.save(); Modal.close(); App.refresh();
     };
   },
   editTable(id) {
