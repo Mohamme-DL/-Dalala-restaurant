@@ -252,10 +252,7 @@ function global:Start-AsyncPrint($j, [double]$h) {
 function global:Initialize-PrintView {
     $pv = [Microsoft.Web.WebView2.WinForms.WebView2]::new()
     $pv.Bounds = [Drawing.Rectangle]::new(0, 0, 420, 700)
-    $props = [Microsoft.Web.WebView2.WinForms.CoreWebView2CreationProperties]::new()
-    $props.UserDataFolder = Join-Path $global:DataDir 'webview2-data'
-    $props.AdditionalBrowserArguments = '--no-proxy-server'
-    $pv.CreationProperties = $props
+    # مهم: نفس بيئة النافذة الرئيسية، لأن اختلاف خيارات المتصفح على نفس مجلد البيانات يُفشل التهيئة (0x8007139F)
     $pv.Add_CoreWebView2InitializationCompleted({
         param($s, $e)
         if ($e.IsSuccess) { $s.CoreWebView2.add_NavigationCompleted({ $global:PrnNav = $true }); $global:PrnReady = $true }
@@ -263,7 +260,7 @@ function global:Initialize-PrintView {
     })
     $global:MainForm.Controls.Add($pv); $pv.SendToBack()   # خلف الواجهة الرئيسية فلا يظهر
     $global:PrnView = $pv
-    [void]$pv.EnsureCoreWebView2Async($null)
+    [void]$pv.EnsureCoreWebView2Async($global:WebView.CoreWebView2.Environment)
 }
 function global:Step-PrintJob {
     $j = $global:PrnJob; if (-not $j) { return }
@@ -380,14 +377,24 @@ function global:Invoke-HostCall([string]$Method, $Arg) {
         default { return $null }
     }
 }
+function global:ConvertTo-PlainData($x, [int]$Depth = 0) {
+    # يحوّل أي ناتج إلى أنواع بسيطة (نص/رقم/قاموس/مصفوفة) كي لا يفشل التسلسل (مرجع دائري PSParameterizedProperty)
+    if ($null -eq $x) { return $null }
+    if ($Depth -gt 8) { return [string]$x }
+    if ($x -is [PSObject] -and $x.PSObject.BaseObject -isnot [PSObject]) { $x = $x.PSObject.BaseObject }
+    if ($x -is [string] -or $x -is [bool] -or $x -is [int] -or $x -is [long] -or $x -is [double] -or $x -is [decimal] -or $x -is [int16] -or $x -is [uint32]) { return $x }
+    if ($x -is [Collections.IDictionary]) { $h = @{}; foreach ($k in @($x.Keys)) { $h[[string]$k] = ConvertTo-PlainData $x[$k] ($Depth + 1) }; return $h }
+    if ($x -is [Collections.IEnumerable]) { $l = [Collections.ArrayList]::new(); foreach ($i in $x) { [void]$l.Add((ConvertTo-PlainData $i ($Depth + 1))) }; return ,$l.ToArray() }
+    return [string]$x
+}
 function global:Invoke-UiMessage([string]$Text) {
     $id = 0
     try {
         $m = $global:Ser.DeserializeObject($Text); $id = [int]$m['id']
         if ([string]$m['m'] -eq 'prn.print') { Add-PrintJob $id $m['a']; return $null }
         $v = Invoke-HostCall ([string]$m['m']) $m['a']
-        return $global:Ser.Serialize(@{ id = $id; v = $v })
-    } catch { Write-AppError 'host call' ($_ | Out-String); return $global:Ser.Serialize(@{ id = $id; v = $null; error = [string]$_.Exception.Message }) }
+        return $global:Ser.Serialize(@{ id = $id; v = (ConvertTo-PlainData $v) })
+    } catch { Write-AppError ('host call [' + [string]$m['m'] + ']') ($_ | Out-String); return $global:Ser.Serialize(@{ id = $id; v = $null; error = [string]$_.Exception.Message }) }
 }
 function global:Get-PageShim($Net) {
     $lic = [DalalaRestaurantLicense.Guard]::MachineCode()
