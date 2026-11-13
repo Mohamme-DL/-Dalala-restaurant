@@ -17,6 +17,7 @@ jobs:
         working-directory: waiter-app
         run: |
           npm install
+          mkdir -p ~/.android && cp debug.keystore ~/.android/debug.keystore
           npx cap add android
           npx cap sync android
           cd android && ./gradlew assembleDebug --no-daemon
