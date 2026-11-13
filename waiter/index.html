@@ -318,6 +318,8 @@ function renderTable(a) {
   </div></div></div>`;
   $('#back').onclick = () => go('tables');
   const ctg = $('#ctog'); if (ctg) ctg.onclick = () => { W.cartOpen = !W.cartOpen; render(); };
+  const fixPad = () => { const ct = $('.cart'), pr = $('.prods'); if (!ct || !pr) return; const phone = ct.getBoundingClientRect().top > 0 && getComputedStyle(ct).position === 'fixed'; pr.style.paddingBottom = phone ? (ct.offsetHeight + 16) + 'px' : ''; };
+  fixPad(); requestAnimationFrame(fixPad); window.onresize = fixPad;
   $('#srch').oninput = e => { W.q = e.target.value; W._typing = true; const pos = e.target.selectionStart; render(); const s = $('#srch'); s.focus(); s.setSelectionRange(pos, pos); W._typing = false; };
   a.querySelectorAll('[data-c]').forEach(b => b.onclick = () => { W.cat = b.dataset.c; render(); });
   a.querySelectorAll('[data-p]').forEach(b => b.onclick = () => { const p = d.products.find(x => x.id === b.dataset.p); const c = W.cart.find(x => x.pid === p.id && !x.note); if (c) c.qty++; else W.cart.push({ pid: p.id, name: p.name, price: p.price, qty: 1, note: '' }); if (navigator.vibrate) navigator.vibrate(15); render(); });
