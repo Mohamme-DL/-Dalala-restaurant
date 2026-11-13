@@ -1,0 +1,3 @@
+{"appId":"com.dalala.waiter","appName":"نادل دلالة","webDir":"www","appendUserAgent":" DalalaWaiterApp",
+"server":{"cleartext":true,"allowNavigation":["*"]},
+"android":{"allowMixedContent":true},"ios":{"contentInset":"always"}}

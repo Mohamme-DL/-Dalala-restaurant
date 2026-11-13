@@ -114,6 +114,24 @@ ipcMain.handle('print:run', (e, o = {}) => new Promise(resolve => {
   const ps = o.pageSize && typeof o.pageSize === 'object' && +o.pageSize.width > 10000 && +o.pageSize.height > 10000 ? { width: Math.min(+o.pageSize.width, 120000), height: Math.min(+o.pageSize.height, 5080000) } : (o.pageSize === 'A4' ? 'A4' : undefined);
   e.sender.print({ silent: !!o.silent, deviceName: String(o.deviceName || ''), printBackground: true, margins: { marginType: o.receipt ? 'none' : 'default' }, ...(ps ? { pageSize: ps } : {}) }, (ok, error) => resolve({ ok, error: ok ? '' : String(error || '') }));
 }));
+/* silent printing of an HTML document (receipts / reports) on a chosen printer, via a hidden window */
+ipcMain.handle('print:html', async (e, html, o = {}) => {
+  if (!fromMain(e)) return { ok: false, error: 'denied' };
+  let w = null;
+  try {
+    w = new BrowserWindow({ show: false, width: 900, height: 1200, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, javascript: true, devTools: false } });
+    await w.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(String(html || '')));
+    const paper = +o.paper || 80, copies = Math.max(1, Math.min(5, parseInt(o.copies) || 1));
+    let pageSize = 'A4';
+    if (paper !== 210) {
+      const h = await w.webContents.executeJavaScript('Math.ceil(document.documentElement.scrollHeight)');
+      pageSize = { width: paper * 1000, height: Math.min(5080000, Math.max(60000, Math.round(h * 264.58) + 6000)) };
+    }
+    const r = await new Promise(resolve => w.webContents.print({ silent: !!o.silent, deviceName: String(o.deviceName || ''), printBackground: true, copies, margins: { marginType: 'none' }, pageSize }, (ok, err) => resolve({ ok, error: ok ? '' : String(err || '') })));
+    return r;
+  } catch (err) { return { ok: false, error: String(err && err.message || err) }; }
+  finally { try { if (w) w.destroy(); } catch (x) { /* ignore */ } }
+});
 /* automatic backups: <userData>/backups/<name>.json, daily ones kept for 30 days */
 const BK_DIR = () => path.join(app.getPath('userData'), 'backups');
 const bkName = n => String(n || '').replace(/[^A-Za-z0-9_.-]/g, '').slice(0, 80);

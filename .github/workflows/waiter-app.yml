@@ -1,0 +1,58 @@
+name: Waiter app (Android APK + iOS)
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/theme-order-number-qty-numpad]
+    paths: ['waiter-app/**', '.github/workflows/waiter-app.yml']
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - name: Build debug APK
+        working-directory: waiter-app
+        run: |
+          npm install
+          npx cap add android
+          npx cap sync android
+          cd android && ./gradlew assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v4
+        with: { name: Dalala-Waiter-Android-APK, path: waiter-app/android/app/build/outputs/apk/debug/app-debug.apk }
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: Build unsigned iOS app
+        working-directory: waiter-app
+        run: |
+          npm install
+          npx cap add ios
+          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" ios/App/App/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool true" ios/App/App/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :NSLocalNetworkUsageDescription string 'للاتصال بجهاز الكاشير داخل الشبكة'" ios/App/App/Info.plist
+          npx cap sync ios
+          cd ios/App
+          xcodebuild -workspace App.xcworkspace -scheme App -configuration Release -sdk iphoneos -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+          mkdir -p Payload && cp -R build/Build/Products/Release-iphoneos/App.app Payload/ && zip -qr Dalala-Waiter-unsigned.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with: { name: Dalala-Waiter-iOS-unsigned-IPA, path: waiter-app/ios/App/Dalala-Waiter-unsigned.ipa }
+  release:
+    needs: [android, ios]
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: out }
+      - name: Publish files to a GitHub release
+        env: { GH_TOKEN: '${{ github.token }}', GH_REPO: '${{ github.repository }}' }
+        run: |
+          mv out/Dalala-Waiter-Android-APK/app-debug.apk Dalala-Waiter-Android.apk
+          mv out/Dalala-Waiter-iOS-unsigned-IPA/Dalala-Waiter-unsigned.ipa Dalala-Waiter-iOS-unsigned.ipa
+          gh release delete waiter-app -y --cleanup-tag || true
+          gh release create waiter-app Dalala-Waiter-Android.apk Dalala-Waiter-iOS-unsigned.ipa --title "تطبيق النادل (أندرويد + iOS)" --notes "APK لأندرويد. وملف IPA لـ iOS غير موقّع (يحتاج توقيع قبل التثبيت)." --prerelease
