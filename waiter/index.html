@@ -78,9 +78,30 @@ input:focus,textarea:focus{border-color:var(--pri);box-shadow:0 0 0 3px #38bdf83
 /* iPad وما فوق: واجهة أوسع */
 @media(min-width:700px){:root{--fs:17px;--g:14px}.modal{align-items:center}.modal>div{border-radius:26px}.tables{grid-template-columns:repeat(auto-fill,minmax(130px,1fr))}.tbl{min-height:120px}.prods{grid-template-columns:repeat(auto-fill,minmax(168px,1fr))}.prod{min-height:124px}.prod img{height:90px}.cart{width:400px}}
 @media(min-width:1000px){:root{--fs:18px;--g:16px}.tables{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}.tbl{min-height:134px}.prods{grid-template-columns:repeat(auto-fill,minmax(190px,1fr))}.cart{width:440px;max-width:38%}.main{padding:22px 28px}}
-/* الهاتف: القائمة فوق والسلة أسفلها */
-@media(max-width:699px){.split{flex-direction:column}.cart{flex:none;width:auto;max-width:none;border-inline-start:0;border-top:2px solid var(--line);max-height:58%;border-radius:22px 22px 0 0;box-shadow:0 -8px 24px #0007}.cart .list{min-height:96px;padding:8px 12px}.foot{gap:8px;padding:10px 12px calc(10px + env(safe-area-inset-bottom))}.foot input{padding:9px 12px}.foot .btn{min-height:44px;padding:8px 12px}.foot .btn.ok{min-height:48px}.line{padding:7px 10px;margin-bottom:6px}.prod{flex-shrink:0}.prods{grid-template-columns:repeat(2,1fr)}.prod{min-height:92px;padding:10px}.bar{padding:10px 12px}.btn{padding:10px 14px}}
-@media(max-width:699px) and (max-height:520px){.split{flex-direction:row}.cart{width:42%;max-height:none;border-radius:0;border-top:0;border-inline-start:1px solid var(--line)}}
+.ctog{display:none}
+/* الهاتف: القائمة بكامل الشاشة وشريط سلة سفلي يُفتح بالضغط */
+@media(max-width:699px){
+.split{flex-direction:column;position:relative}
+.menu{flex:1}
+.prods{grid-template-columns:repeat(2,1fr);padding:4px 12px calc(150px + env(safe-area-inset-bottom));gap:10px}
+.prod{min-height:92px;padding:10px;border-radius:16px}.prod .ph{width:34px;height:34px;border-radius:10px}
+.cats{padding:10px 12px}
+.cart{position:fixed;inset-inline:0;bottom:0;z-index:30;width:auto;max-width:none;border-inline-start:0;border-top:1px solid var(--line);border-radius:22px 22px 0 0;box-shadow:0 -10px 30px #0008;max-height:82%}
+.ctog{display:flex;align-items:center;gap:10px;width:100%;padding:12px 16px 10px;background:none;border:0;color:var(--tx);font:inherit;font-weight:800}
+.ctog:before{content:"";position:absolute;top:6px;left:50%;transform:translateX(-50%);width:44px;height:4px;border-radius:4px;background:var(--line)}
+.cart{position:fixed}
+.ctog .ci{min-width:28px;height:28px;border-radius:99px;background:linear-gradient(180deg,var(--pri),var(--pri2));color:var(--onpri);display:flex;align-items:center;justify-content:center;padding:0 8px;font-size:.9em}
+.ctog .ct{flex:1;text-align:start}.ctog .cs{color:var(--price)}.ctog .cc{color:var(--mut);font-size:1.1em}
+.cart .list{display:none;overflow:auto;padding:4px 12px;max-height:46vh}
+.cart.open .list{display:block}
+.cart:not(.open) #onote,.cart:not(.open) .tot{display:none}
+.foot{gap:8px;padding:8px 12px calc(10px + env(safe-area-inset-bottom))}
+.foot input{padding:9px 12px}.foot .btn{min-height:46px;padding:8px 12px}.foot .btn.ok{min-height:50px}
+.line{padding:8px 10px;margin-bottom:6px}.bar{padding:10px 12px}.btn{padding:10px 14px}
+}
+@media(max-width:699px) and (max-height:520px){.split{flex-direction:row}.cart{position:static;width:42%;max-height:none;border-radius:0;border-top:0;border-inline-start:1px solid var(--line);box-shadow:none}.ctog{display:none}.cart .list{display:block;max-height:none}.cart:not(.open) #onote,.cart:not(.open) .tot{display:flex}.prods{padding-bottom:18px}}
+/* تابلت عمودي */
+@media(min-width:700px) and (max-width:999px){.cart{width:330px;max-width:40%}.prods{grid-template-columns:repeat(auto-fill,minmax(128px,1fr))}.prod{min-height:112px}}
 .sw{width:44px;height:44px;border-radius:50%;border:3px solid transparent;box-shadow:0 0 0 1px var(--line)}.sw.on{border-color:var(--tx)}.icb{min-height:44px;min-width:44px;padding:8px 12px;font-size:1.15em}
 </style>
 </head>
@@ -266,7 +287,7 @@ function renderTables(a) {
   const tbs = W.data.tables || []; const zones = [...new Set(tbs.map(t => t.zone || 'الصالة'))];
   a.innerHTML = `<div class="bar"><span class="dot ${W.online ? 'on' : ''}"></span><h1>الطاولات</h1><small id="qn" class="mut"></small><span class="mut">${esc(W.user.name)}</span>${themeBtn()}<button class="btn" id="out">خروج</button></div>
   <div class="main">${zones.map(z => `<div class="zone">${esc(z)}</div><div class="tables">${tbs.filter(t => (t.zone || 'الصالة') === z).map(t => { const o = openOf(t.id); const tot = o ? calc(o).total : 0; return `<button class="tbl ${o ? (o.billReq ? 'bill' : 'busy') : ''}" data-t="${t.id}"><b>${esc(t.name)}</b><small>${o ? money(tot) : 'فارغة'}</small>${o && o.billReq ? '<small>طلب فاتورة</small>' : ''}</button>`; }).join('')}</div>`).join('') || '<p class="mut">لا توجد طاولات</p>'}</div>`;
-  a.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { W.table = b.dataset.t; W.cart = []; W.cat = 'all'; W.q = ''; W.note = ''; go('table'); });
+  a.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { W.table = b.dataset.t; W.cart = []; W.cat = 'all'; W.q = ''; W.note = ''; W.cartOpen = false; go('table'); });
   $('#out').onclick = () => { W.user = null; LS.del('w_user'); go('login'); }; setDot();
 }
 function calc(o) {
@@ -287,7 +308,7 @@ function renderTable(a) {
   <div class="split"><div class="menu"><div style="padding:10px 12px 0"><input id="srch" placeholder="بحث عن صنف…" value="${esc(W.q)}"></div>
     <div class="cats"><button class="chip ${W.cat === 'all' ? 'sel' : ''}" data-c="all">الكل</button>${cats.map(c => `<button class="chip ${W.cat === c.id ? 'sel' : ''}" data-c="${c.id}">${esc(c.name)}</button>`).join('')}</div>
     <div class="prods">${prods.map(p => `<button class="prod" data-p="${p.id}">${inCart(p.id) ? `<span class="q">${inCart(p.id)}</span>` : ''}${p.image && S().showImages ? `<img src="${esc(p.image)}" alt="">` : `<i class="ph">${esc(String(p.name||'?').trim().charAt(0))}</i>`}<b>${esc(p.name)}</b><span>${money(p.price)}</span></button>`).join('') || '<p class="mut">لا توجد أصناف</p>'}</div></div>
-  <div class="cart"><div class="list">
+  <div class="cart ${W.cartOpen ? 'open' : ''}">${(W.cart.length || (o && o.items.length)) ? `<button class="ctog" id="ctog"><span class="ci">${W.cart.length ? W.cart.reduce((x, c) => x + c.qty, 0) : o.items.reduce((x, i) => x + i.qty, 0)}</span><span class="ct">${W.cart.length ? 'طلب جديد' : 'الطلب المُرسل'}</span><span class="cs">${W.cart.length ? money(cartTotal) : money(calc(o).total)}</span><span class="cc">${W.cartOpen ? '▾' : '▴'}</span></button>` : ''}<div class="list">
     ${o && o.items.length ? `<div class="mut" style="font-size:13px;margin-bottom:4px">مُرسل سابقًا</div>${o.items.map(i => `<div class="line sent"><div class="n">${esc(i.name)}${i.note ? `<small>» ${esc(i.note)}</small>` : ''}</div><b>× ${i.qty}</b></div>`).join('')}<div class="tot" style="margin:8px 0"><span>الحساب الحالي</span><span>${money(calc(o).total)}</span></div><hr style="border-color:var(--line)">` : ''}
     <div class="mut" style="font-size:13px;margin:6px 0">طلب جديد</div>
     ${W.cart.length ? W.cart.map((c, i) => `<div class="line"><div class="n">${esc(c.name)}<small>${money(c.price * c.qty)}</small>${c.note ? `<small>» ${esc(c.note)}</small>` : ''}<button class="btn" data-n="${i}" style="min-height:30px;padding:2px 10px;font-size:13px;margin-top:4px">ملاحظة</button></div><div class="qty"><button data-m="${i}">−</button><b>${c.qty}</b><button data-a="${i}">+</button></div></div>`).join('') : '<p class="mut">اضغط على الأصناف لإضافتها</p>'}
@@ -296,6 +317,7 @@ function renderTable(a) {
     ${o ? `<div class="row"><button class="btn pri" id="bill">${o.billReq ? 'إعادة طباعة الفاتورة' : 'طلب الفاتورة'}</button><button class="btn warn" id="pay">دفع</button></div>` : ''}
   </div></div></div>`;
   $('#back').onclick = () => go('tables');
+  const ctg = $('#ctog'); if (ctg) ctg.onclick = () => { W.cartOpen = !W.cartOpen; render(); };
   $('#srch').oninput = e => { W.q = e.target.value; W._typing = true; const pos = e.target.selectionStart; render(); const s = $('#srch'); s.focus(); s.setSelectionRange(pos, pos); W._typing = false; };
   a.querySelectorAll('[data-c]').forEach(b => b.onclick = () => { W.cat = b.dataset.c; render(); });
   a.querySelectorAll('[data-p]').forEach(b => b.onclick = () => { const p = d.products.find(x => x.id === b.dataset.p); const c = W.cart.find(x => x.pid === p.id && !x.note); if (c) c.qty++; else W.cart.push({ pid: p.id, name: p.name, price: p.price, qty: 1, note: '' }); if (navigator.vibrate) navigator.vibrate(15); render(); });
@@ -305,7 +327,7 @@ function renderTable(a) {
   const on = $('#onote'); if (on) on.oninput = e => { W.note = e.target.value; };
   const snd = $('#send'); if (snd) snd.onclick = () => {
     enqueue({ kind: 'send', tableId: W.table, items: W.cart.map(c => ({ pid: c.pid, qty: c.qty, note: c.note })), note: W.note });
-    W.cart = []; W.note = ''; toast('تم الإرسال للمطبخ ✓'); go('tables');
+    W.cart = []; W.note = ''; W.cartOpen = false; toast('تم الإرسال للمطبخ ✓'); go('tables');
   };
   const bl = $('#bill'); if (bl) bl.onclick = () => { if (W.cart.length) return toast('أرسل الطلب الجديد أولًا'); enqueue({ kind: 'bill', orderId: o.id }); toast('تم طلب طباعة الفاتورة'); go('tables'); };
   const py = $('#pay'); if (py) py.onclick = () => { if (W.cart.length) return toast('أرسل الطلب الجديد أولًا'); askPay(o); };
