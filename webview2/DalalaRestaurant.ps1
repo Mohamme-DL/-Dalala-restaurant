@@ -192,7 +192,7 @@ function global:Add-PrintJob($Id, $Arg) {
 function global:Start-PrintPump {
     if ($global:PrnBusy -or $global:PrnQueue.Count -eq 0) { return }
     $j = $global:PrnQueue.Dequeue(); $global:PrnBusy = $true
-    $global:PrnJob = @{ id = $j.id; a = $j.a; stage = 'init'; t0 = [DateTime]::UtcNow; task = $null; file = '' }
+    $global:PrnLastRasterError = ''; $global:PrnJob = @{ id = $j.id; a = $j.a; stage = 'init'; raster = $false; h = 0.0; ms = $null; t1 = $null; t0 = [DateTime]::UtcNow; task = $null; file = '' }
     if (-not $global:PrnTimer) {
         $global:PrnTimer = [Windows.Forms.Timer]::new(); $global:PrnTimer.Interval = 150
         $global:PrnTimer.Add_Tick({ try { Step-PrintJob } catch { Complete-PrintJob $false ('خطأ: ' + $_.Exception.Message); Write-AppError 'print step' ($_ | Out-String) } })
@@ -207,6 +207,47 @@ function global:Complete-PrintJob($Ok, $Err) {
     }
     $global:PrnBusy = $false
     if ($global:PrnQueue.Count -gt 0) { Start-PrintPump } else { $global:PrnTimer.Stop() }
+}
+function global:Print-Bitmap([Drawing.Bitmap]$Bmp, [string]$Printer, [int]$Copies) {
+    # طباعة صورة الإيصال مباشرة عبر تعريف الطابعة (GDI) بلا أي نافذة؛ أوثق مع الطابعات الحرارية
+    $pd = New-Object System.Drawing.Printing.PrintDocument
+    try {
+        if ($Printer) { $pd.PrinterSettings.PrinterName = $Printer }
+        if (-not $pd.PrinterSettings.IsValid) { throw ('الطابعة غير متاحة: ' + $pd.PrinterSettings.PrinterName) }
+        $pd.PrinterSettings.Copies = [int16][Math]::Max(1, $Copies)
+        $pd.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(0, 0, 0, 0)
+        $pd.DocumentName = 'Dalala'
+        $st = @{ y = 0.0 }
+        $pd.add_PrintPage({
+            param($sender, $e)
+            $g = $e.Graphics; $g.InterpolationMode = [Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+            $vc = $g.VisibleClipBounds
+            $scale = $vc.Width / $Bmp.Width
+            $srcH = [Math]::Min($Bmp.Height - $st.y, $vc.Height / $scale)
+            $dest = New-Object Drawing.RectangleF($vc.X, $vc.Y, $vc.Width, ($srcH * $scale))
+            $src = New-Object Drawing.RectangleF(0, $st.y, $Bmp.Width, $srcH)
+            $g.DrawImage($Bmp, $dest, $src, [Drawing.GraphicsUnit]::Pixel)
+            $st.y = $st.y + $srcH
+            $e.HasMorePages = ($Bmp.Height - $st.y) -gt 2
+        }.GetNewClosure())
+        $pd.Print()
+    } finally { $pd.Dispose() }
+}
+function global:Start-AsyncPrint($j, [double]$h) {
+    $core = $global:PrnView.CoreWebView2
+    $ps = $core.Environment.CreatePrintSettings()
+    $paper = 80; try { $paper = [int]$j.a['paper'] } catch {}
+    if ($paper -ge 200) { $ps.PageWidth = 8.27; $ps.PageHeight = 11.69; $ps.MarginTop = 0.4; $ps.MarginBottom = 0.4; $ps.MarginLeft = 0.4; $ps.MarginRight = 0.4 }
+    else {
+        $ps.PageWidth = [Math]::Round($paper / 25.4, 3); $ps.PageHeight = [Math]::Round([Math]::Max(1.5, $h / 96 + 0.25), 3)
+        $ps.MarginTop = 0; $ps.MarginBottom = 0; $ps.MarginLeft = 0; $ps.MarginRight = 0
+    }
+    $ps.ShouldPrintBackgrounds = $true; $ps.ShouldPrintHeaderAndFooter = $false
+    $cp = 1; try { $cp = [Math]::Max(1, [Math]::Min(5, [int]$j.a['copies'])) } catch {}
+    $ps.Copies = $cp
+    $name = [string]$j.a['deviceName']; if ($name) { $ps.PrinterName = $name }
+    $j.task = $core.PrintAsync($ps)
+    $j.stage = 'waitprint'
 }
 function global:Initialize-PrintView {
     $pv = [Microsoft.Web.WebView2.WinForms.WebView2]::new()
@@ -239,37 +280,66 @@ function global:Step-PrintJob {
             $f = Join-Path ([IO.Path]::GetTempPath()) ('dalala-print-' + [Guid]::NewGuid().ToString('N') + '.html')
             [IO.File]::WriteAllText($f, $html, [Text.UTF8Encoding]::new($true)); $j.file = $f
             $global:PrnNav = $false
+            $paper0 = 80; try { $paper0 = [int]$j.a['paper'] } catch {}
+            $j.raster = ($paper0 -lt 200)
+            try {
+                if ($j.raster) { $global:PrnView.ZoomFactor = 2.5; $global:PrnView.Size = [Drawing.Size]::new([int][Math]::Round($paper0 / 25.4 * 96 * 2.5), 900) }
+                else { $global:PrnView.ZoomFactor = 1.0; $global:PrnView.Size = [Drawing.Size]::new(794, 900) }
+            } catch { $j.raster = $false }
             $global:PrnView.CoreWebView2.Navigate([Uri]::new($f).AbsoluteUri)
             $j.stage = 'waitnav'
         }
         'waitnav' {
             if (-not $global:PrnNav) { return }
-            $j.task = $global:PrnView.CoreWebView2.ExecuteScriptAsync('Math.ceil(Math.max(document.documentElement.scrollHeight, document.body.scrollHeight))')
+            $j.task = $global:PrnView.CoreWebView2.ExecuteScriptAsync('Math.ceil(document.body.getBoundingClientRect().height + 2)')
             $j.stage = 'waitheight'
         }
         'waitheight' {
             if (-not $j.task.IsCompleted) { return }
             if ($j.task.IsFaulted) { Complete-PrintJob $false 'تعذر قياس الصفحة'; return }
             $h = 0.0; [void][double]::TryParse([string]$j.task.Result, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$h)
-            $core = $global:PrnView.CoreWebView2
-            $ps = $core.Environment.CreatePrintSettings()
-            $paper = 80; try { $paper = [int]$j.a['paper'] } catch {}
-            if ($paper -ge 200) { $ps.PageWidth = 8.27; $ps.PageHeight = 11.69; $ps.MarginTop = 0.4; $ps.MarginBottom = 0.4; $ps.MarginLeft = 0.4; $ps.MarginRight = 0.4 }
-            else {
-                $ps.PageWidth = [Math]::Round($paper / 25.4, 3); $ps.PageHeight = [Math]::Round([Math]::Max(1.5, $h / 96 + 0.25), 3)
-                $ps.MarginTop = 0; $ps.MarginBottom = 0; $ps.MarginLeft = 0; $ps.MarginRight = 0
+            $j.h = $h
+            if ($j.raster) {
+                try {
+                    $global:PrnView.Size = [Drawing.Size]::new($global:PrnView.Width, [int][Math]::Min(15000, [Math]::Ceiling($h * 2.5) + 4))
+                    $j.t1 = [DateTime]::UtcNow; $j.stage = 'settle'
+                } catch { Write-AppError 'print raster resize' ($_ | Out-String); $j.raster = $false; Start-AsyncPrint $j $h }
+            } else { Start-AsyncPrint $j $h }
+        }
+        'settle' {
+            if (([DateTime]::UtcNow - $j.t1).TotalMilliseconds -lt 500) { return }
+            try {
+                $j.ms = [IO.MemoryStream]::new()
+                $j.task = $global:PrnView.CoreWebView2.CapturePreviewAsync([Microsoft.Web.WebView2.Core.CoreWebView2CapturePreviewImageFormat]::Png, $j.ms)
+                $j.stage = 'waitcap'
+            } catch { Write-AppError 'print raster capture' ($_ | Out-String); $j.raster = $false; Start-AsyncPrint $j $j.h }
+        }
+        'waitcap' {
+            if (-not $j.task.IsCompleted) { return }
+            $okRaster = $false
+            try {
+                if ($j.task.IsFaulted) { throw $j.task.Exception.GetBaseException() }
+                $j.ms.Position = 0
+                $tmp = [Drawing.Bitmap]::new($j.ms); $bmp = [Drawing.Bitmap]::new($tmp); $tmp.Dispose()
+                try {
+                    $cp = 1; try { $cp = [Math]::Max(1, [Math]::Min(5, [int]$j.a['copies'])) } catch {}
+                    Print-Bitmap $bmp ([string]$j.a['deviceName']) $cp
+                    $okRaster = $true
+                } finally { $bmp.Dispose() }
+            } catch {
+                Write-AppError 'print raster failed (falling back to PrintAsync)' ($_ | Out-String)
+                $global:PrnLastRasterError = $_.Exception.Message
             }
-            $ps.ShouldPrintBackgrounds = $true; $ps.ShouldPrintHeaderAndFooter = $false
-            $cp = 1; try { $cp = [Math]::Max(1, [Math]::Min(5, [int]$j.a['copies'])) } catch {}
-            $ps.Copies = $cp
-            $name = [string]$j.a['deviceName']; if ($name) { $ps.PrinterName = $name }
-            $j.task = $core.PrintAsync($ps)
-            $j.stage = 'waitprint'
+            try { $j.ms.Dispose() } catch {}
+            try { $global:PrnView.ZoomFactor = 1.0; $global:PrnView.Size = [Drawing.Size]::new(420, 700) } catch {}
+            if ($okRaster) { Write-AppError 'print ok (raster)' ([string]$j.a['deviceName']); Complete-PrintJob $true ''; return }
+            Start-AsyncPrint $j $j.h
         }
         'waitprint' {
             if (-not $j.task.IsCompleted) { return }
-            if ($j.task.IsFaulted) { Complete-PrintJob $false ([string]$j.task.Exception.GetBaseException().Message); return }
+            if ($j.task.IsFaulted) { Complete-PrintJob $false ([string]$j.task.Exception.GetBaseException().Message + $(if ($global:PrnLastRasterError) { ' | ' + $global:PrnLastRasterError } else { '' })); return }
             $st = [string]$j.task.Result
+            Write-AppError 'print PrintAsync result' ($st + ' / ' + [string]$j.a['deviceName'])
             if ($st -eq 'Succeeded') { Complete-PrintJob $true '' }
             elseif ($st -eq 'PrinterUnavailable') { Complete-PrintJob $false 'الطابعة غير متاحة، تحقق من اسمها وأنها تعمل' }
             else { Complete-PrintJob $false ('فشلت الطباعة (' + $st + ')') }
