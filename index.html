@@ -2354,7 +2354,7 @@ th.n,td.n{text-align:center}tfoot td{background:#e2e8f0!important;font-weight:80
 const docsBtn = (fn) => `<button class="btn-ghost text-xs" onclick="Docs.menu(()=>Docs.${fn}())"><i class="fa-solid fa-print"></i> طباعة / تصدير</button>`;
 
 const Theme = {
-  KEY: 'dalala_ui', DEF: { mode: 'dark', accent: '#0ea5e9' },
+  KEY: 'dalala_ui', DEF: { mode: 'dark', accent: '#0ea5e9', zoom: '100' }, ZOOMS: [75, 85, 90, 100, 110, 125, 150, 175],
   PRESETS: [['#0ea5e9', 'أزرق'], ['#f97316', 'برتقالي'], ['#10b981', 'أخضر'], ['#8b5cf6', 'بنفسجي'], ['#f43f5e', 'وردي'], ['#f59e0b', 'عنبري'], ['#14b8a6', 'تركوازي'], ['#6366f1', 'نيلي']],
   get() { try { return Object.assign({}, this.DEF, JSON.parse(localStorage.getItem(this.KEY) || '{}')); } catch (e) { return Object.assign({}, this.DEF); } },
   save(o) { try { localStorage.setItem(this.KEY, JSON.stringify(o)); } catch (e) {} },
@@ -2364,7 +2364,7 @@ const Theme = {
   apply() {
     const c = this.get(), root = document.documentElement, light = this.isLight(c.mode);
     root.setAttribute('data-theme', light ? 'light' : 'dark');
-    this.syncBtn(light);
+    this.syncBtn(light); this.fit();
     ['200', '300', '400', '500', '600'].forEach(k => root.style.removeProperty('--ac-' + k));
     if (light || (c.accent && c.accent.toLowerCase() !== this.DEF.accent)) {
       const [h, s, l] = this.hsl(c.accent || this.DEF.accent);
@@ -2373,16 +2373,44 @@ const Theme = {
       Object.keys(dk).forEach(k => root.style.setProperty('--ac-' + k, this.rgb(h, s, (light ? lt : dk)[k])));
     }
   },
+  /** تكبير/تصغير الواجهة (لهذا الجهاز): تلقائي حسب الشاشة أو نسبة ثابتة */
+  fit() {
+    const b = document.body; if (!b) return;
+    const pref = String(this.get().zoom || '100'), w = window.innerWidth, h = window.innerHeight;
+    let z = 1;
+    if (pref === 'auto') { z = Math.min(w / 1440, h / 780); z = Math.max(.72, Math.min(1.5, z)); if (z > .93 && z < 1.07) z = 1; }
+    else if (parseFloat(pref) > 0) z = parseFloat(pref) / 100;
+    z = Math.round(z * 100) / 100;
+    const app = document.getElementById('app');
+    if (z === 1) { b.style.zoom = ''; b.style.width = ''; b.style.height = ''; if (app) app.style.height = ''; }
+    else { b.style.zoom = z; b.style.width = (100 / z) + 'vw'; b.style.height = (100 / z) + 'vh'; if (app) app.style.height = '100%'; }
+    window.__zoom = z;
+  },
+  step(d) {
+    const cur = this.get().zoom, list = this.ZOOMS; let v = cur === 'auto' ? Math.round((window.__zoom || 1) * 100) : parseInt(cur) || 100;
+    let i = list.indexOf(v); if (i < 0) i = list.reduce((bi, x, k) => Math.abs(x - v) < Math.abs(list[bi] - v) ? k : bi, 0);
+    i = d === 0 ? list.indexOf(100) : Math.max(0, Math.min(list.length - 1, i + d));
+    this.set({ zoom: String(list[i]) });
+  },
   set(p) { this.save(Object.assign(this.get(), p)); this.apply(); if (window.App && App.refresh) App.refresh(); },
   syncBtn(light) { const b = document.getElementById('themeBtn'); if (b) b.innerHTML = light ? '<i class="fa-solid fa-moon text-sky-300"></i>' : '<i class="fa-solid fa-sun"></i>'; },
   toggle() { this.set({ mode: this.isLight(this.get().mode) ? 'dark' : 'light' }); },
   panel() {
     const c = this.get(), modes = [['dark', 'ليلي', 'fa-moon'], ['light', 'فاتح', 'fa-sun'], ['auto', 'تلقائي', 'fa-circle-half-stroke']];
-    return `<div class="mb-4"><div class="text-xs text-slate-400 mb-2">وضع الواجهة (لهذا الجهاز)</div><div class="flex gap-2">${modes.map(m => `<button class="chip ${c.mode === m[0] ? 'bg-sky-500/20 text-sky-300 border-sky-500/40' : 'bg-slate-800 border-slate-700 text-slate-300'} px-3 py-2 text-xs" onclick="Theme.set({mode:'${m[0]}'})"><i class="fa-solid ${m[2]}"></i> ${m[1]}</button>`).join('')}</div></div>
+    const zsel = `<div class="mb-4"><div class="text-xs text-slate-400 mb-2">حجم الواجهة (لهذا الجهاز) — أو اضغط Ctrl و + / −</div><div class="flex items-center gap-2"><select class="inp w-48" onchange="Theme.set({zoom:this.value})"><option value="auto" ${c.zoom === 'auto' ? 'selected' : ''}>تلقائي (حسب الشاشة)</option>${this.ZOOMS.map(z => `<option value="${z}" ${String(c.zoom) === String(z) ? 'selected' : ''}>${z}%</option>`).join('')}</select><button class="btn-ghost text-xs" onclick="Theme.step(-1)" title="تصغير">−</button><button class="btn-ghost text-xs" onclick="Theme.step(1)" title="تكبير">+</button><button class="btn-ghost text-xs" onclick="Theme.step(0)">100%</button></div></div>`;
+    return zsel + `<div class="mb-4"><div class="text-xs text-slate-400 mb-2">وضع الواجهة (لهذا الجهاز)</div><div class="flex gap-2">${modes.map(m => `<button class="chip ${c.mode === m[0] ? 'bg-sky-500/20 text-sky-300 border-sky-500/40' : 'bg-slate-800 border-slate-700 text-slate-300'} px-3 py-2 text-xs" onclick="Theme.set({mode:'${m[0]}'})"><i class="fa-solid ${m[2]}"></i> ${m[1]}</button>`).join('')}</div></div>
       <div class="mb-4"><div class="text-xs text-slate-400 mb-2">لون الواجهة</div><div class="flex flex-wrap items-center gap-2">${this.PRESETS.map(p => `<button title="${p[1]}" onclick="Theme.set({accent:'${p[0]}'})" class="w-8 h-8 rounded-full border-2 ${c.accent.toLowerCase() === p[0] ? 'border-white' : 'border-transparent'}" style="background:${p[0]}"></button>`).join('')}<label class="text-xs text-slate-400 flex items-center gap-1.5 mr-2">لون آخر <input type="color" value="${c.accent}" onchange="Theme.set({accent:this.value})" class="w-8 h-8 bg-transparent border-0 p-0 cursor-pointer"></label></div></div>`;
   }
 };
 Theme.apply();
+window.addEventListener('resize', () => Theme.fit());
+document.addEventListener('keydown', e => {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+  if (e.key === '+' || e.key === '=') { e.preventDefault(); Theme.step(1); }
+  else if (e.key === '-' || e.key === '_') { e.preventDefault(); Theme.step(-1); }
+  else if (e.key === '0') { e.preventDefault(); Theme.step(0); }
+}, true);
+document.addEventListener('wheel', e => { if (e.ctrlKey) { e.preventDefault(); Theme.step(e.deltaY < 0 ? 1 : -1); } }, { passive: false });
 if (window.matchMedia) { try { window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => { if (Theme.get().mode === 'auto') Theme.apply(); }); } catch (e) {} }
 const Cfg = {
   v(k, val) { S()[k] = val; Store.save(); if (['name', 'logo'].includes(k)) App.brand(); if (['silentPrint', 'decimals', 'currency'].includes(k)) App.refresh(); toast('تم الحفظ', 'success'); },
