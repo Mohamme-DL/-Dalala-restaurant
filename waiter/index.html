@@ -11,6 +11,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <title>تطبيق النادل — دلالة</title>
 <style>
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 :root{--bg:#070d1a;--bg2:#0d1730;--card:#111c33;--card2:#182742;--line:#233556;--tx:#eef3fc;--mut:#8da0c2;--pri:#38bdf8;--pri2:#0284c7;--ok:#22c55e;--ok2:#15803d;--warn:#fbbf24;--bad:#fb7185;--r:18px;--fs:16px;--g:12px;--shadow:0 6px 20px #0006;--onpri:#032033;--glow:#12315a;--bar1:#14233f;--bar2:#101c34;--cart1:#0f1a31;--cart2:#0b1426;--foot:#0d172b;--inp:#0b1429;--mod1:#15243f;--mod2:#101b31;--cen1:#13213c;--cen2:#0f1a30;--busy1:#33290f;--busy2:#1f1a0c;--busyt:#fde68a;--bill1:#0e3350;--bill2:#0a2338;--billt:#bae6fd;--price:#86efac;--ph1:#1e3a63;--ph2:#14284a;--toast:#0b1220f2;--ovl:#000b}
 html[data-theme=light]{--bg:#eef2f8;--card:#ffffff;--card2:#f3f6fb;--line:#d5deec;--tx:#0f1b33;--mut:#5b6b88;--shadow:0 5px 16px #1e3a6a1f;--glow:#cfe3ff;--bar1:#ffffff;--bar2:#f6f9fe;--cart1:#ffffff;--cart2:#f4f7fc;--foot:#ffffff;--inp:#ffffff;--mod1:#ffffff;--mod2:#f6f9fe;--cen1:#ffffff;--cen2:#f6f9fe;--busy1:#fff4d6;--busy2:#ffe9ad;--busyt:#7a4b00;--bill1:#dff2ff;--bill2:#c6e7fb;--billt:#07517f;--price:#15803d;--ph1:#dbeafe;--ph2:#c7dcfa;--toast:#fffffff2;--ovl:#0f1b3399;--ok:#16a34a;--ok2:#15803d;--warn:#f59e0b;--bad:#e11d48}
 html[data-a=emerald]{--pri:#34d399;--pri2:#059669;--onpri:#032a1d;--glow:#0f4a3a}
@@ -55,7 +56,7 @@ input:focus,textarea:focus{border-color:var(--pri);box-shadow:0 0 0 3px #38bdf83
 .split{display:flex;flex:1;min-height:0}
 .menu{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
 .cats{display:flex;gap:9px;overflow-x:auto;padding:12px 14px;scrollbar-width:none}.cats::-webkit-scrollbar{display:none}
-.prods{flex:1;overflow:auto;padding:4px 14px 18px;display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:var(--g);align-content:start}
+.prods{flex:1;overflow:auto;padding:4px 14px 18px;display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:var(--g);align-content:start;grid-auto-rows:max-content}
 .prod{background:linear-gradient(180deg,var(--card2),var(--card));border:1.5px solid var(--line);border-radius:var(--r);padding:12px;text-align:start;min-height:104px;display:flex;flex-direction:column;justify-content:space-between;gap:8px;position:relative;box-shadow:0 4px 14px #0004;overflow:hidden}
 .prod b{font-size:.98em;line-height:1.35;font-weight:700}.prod span{color:var(--price);font-weight:800}
 .prod .ph{width:38px;height:38px;border-radius:12px;background:linear-gradient(135deg,var(--ph1),var(--ph2));color:var(--pri);display:flex;align-items:center;justify-content:center;font-style:normal;font-weight:800;font-size:1.1em}
