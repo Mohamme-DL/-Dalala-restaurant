@@ -110,11 +110,11 @@ namespace DalalaRestaurant
             }
             var headBytes = buf.GetRange(0, headEnd).ToArray();
             var head = Encoding.UTF8.GetString(headBytes).Split(new[] { "\r\n" }, StringSplitOptions.None);
-            var first = head[0].Split(' '); if (first.Length < 2) return null;
+            var first = head[0].Split(new[] { ' ' }); if (first.Length < 2) return null;
             var req = new HttpReq { Method = first[0].ToUpperInvariant() };
             var target = first[1]; int q = target.IndexOf('?');
             req.Path = Uri.UnescapeDataString(q >= 0 ? target.Substring(0, q) : target);
-            if (q >= 0) foreach (var pair in target.Substring(q + 1).Split('&'))
+            if (q >= 0) foreach (var pair in target.Substring(q + 1).Split(new[] { '&' }))
             {
                 if (pair.Length == 0) continue; int e = pair.IndexOf('=');
                 var k = e >= 0 ? pair.Substring(0, e) : pair; var v = e >= 0 ? pair.Substring(e + 1) : "";
@@ -150,7 +150,7 @@ namespace DalalaRestaurant
             return (req, res) =>
             {
                 if (req.Method != "GET" && req.Method != "HEAD") { res.Send(404, "text/plain", new byte[0], null); return; }
-                var rel = req.Path == "/" ? "index.html" : req.Path.TrimStart('/');
+                var rel = req.Path == "/" ? "index.html" : req.Path.TrimStart(new[] { '/' });
                 var p = Path.GetFullPath(Path.Combine(full, rel.Replace('/', Path.DirectorySeparatorChar)));
                 if (!p.StartsWith(full + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) || !File.Exists(p)) { res.Send(404, "text/plain", Encoding.UTF8.GetBytes("not found"), null); return; }
                 string t; if (!Types.TryGetValue(Path.GetExtension(p), out t)) t = "application/octet-stream";
