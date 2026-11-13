@@ -42,3 +42,17 @@ jobs:
           mkdir -p Payload && cp -R build/Build/Products/Release-iphoneos/App.app Payload/ && zip -qr Dalala-Waiter-unsigned.ipa Payload
       - uses: actions/upload-artifact@v4
         with: { name: Dalala-Waiter-iOS-unsigned-IPA, path: waiter-app/ios/App/Dalala-Waiter-unsigned.ipa }
+  release:
+    needs: [android, ios]
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: out }
+      - name: Publish files to a GitHub release
+        env: { GH_TOKEN: '${{ github.token }}', GH_REPO: '${{ github.repository }}' }
+        run: |
+          mv out/Dalala-Waiter-Android-APK/app-debug.apk Dalala-Waiter-Android.apk
+          mv out/Dalala-Waiter-iOS-unsigned-IPA/Dalala-Waiter-unsigned.ipa Dalala-Waiter-iOS-unsigned.ipa
+          gh release delete waiter-app -y --cleanup-tag || true
+          gh release create waiter-app Dalala-Waiter-Android.apk Dalala-Waiter-iOS-unsigned.ipa --title "تطبيق النادل (أندرويد + iOS)" --notes "APK لأندرويد. وملف IPA لـ iOS غير موقّع (يحتاج توقيع قبل التثبيت)." --prerelease
