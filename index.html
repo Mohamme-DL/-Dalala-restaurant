@@ -1347,7 +1347,8 @@ VIEWS.tables = (el) => {
       if (o._draft) return `<button onclick="App.go('pos')" class="press tbl-busy rounded-2xl p-3 aspect-[4/3] flex flex-col items-center justify-center gap-0.5 transition">
           <span class="text-2xl font-extrabold">${esc(t.name)}</span><span class="num font-bold text-sm">${money(c.total)}</span>
           <span class="text-[10px] opacity-90"><i class="fa-solid fa-pen"></i> قيد الإدخال (غير محفوظ) • ${c.qty} صنف</span></button>`;
-      return `<button onclick="POS.load('${o.id}')" class="press tbl-busy rounded-2xl p-3 aspect-[4/3] flex flex-col items-center justify-center gap-0.5 transition">
+      return `<button onclick="POS.load('${o.id}')" class="press tbl-busy relative rounded-2xl p-3 aspect-[4/3] flex flex-col items-center justify-center gap-0.5 transition">
+          <span role="button" title="تفريغ الطاولة (إلغاء طلبها)" onclick="event.stopPropagation();Tbl.free('${o.id}')" class="absolute top-1 left-1 w-7 h-7 rounded-lg bg-black/30 hover:bg-black/50 flex items-center justify-center text-xs"><i class="fa-solid fa-broom"></i></span>
           <span class="text-2xl font-extrabold">${esc(t.name)}</span><span class="num font-bold text-sm">${money(c.total)}</span>
           <span class="text-[10px] opacity-90"><i class="fa-regular fa-clock"></i> ${since(o.createdAt)} • ${c.qty} صنف</span></button>`;
     }).join('')}</div>`).join('') +
@@ -1360,6 +1361,20 @@ VIEWS.tables = (el) => {
         ${o.customer.address ? `<div class="text-[11px] text-slate-400 truncate"><i class="fa-solid fa-location-dot"></i> ${esc(o.customer.address)}</div>` : ''}
         <div class="num font-bold text-emerald-400 mt-1">${money(c.total)}</div></button>`;
     }).join('')}</div>` : '<p class="text-slate-500 text-sm">لا توجد طلبات معلّقة</p>');
+};
+const Tbl = {
+  /** تفريغ طاولة يدويًا: إلغاء الطلب المفتوح عليها (بصلاحية وسبب مسجّل) */
+  async free(id) {
+    const o = DB.open.find(x => x.id === id); if (!o) return;
+    if (!(await Perm.ask('cancelOrder', 'تفريغ طاولة (إلغاء طلبها)'))) return;
+    const why = await promptBox('تفريغ ' + tableName(o.tableId), { label: 'سبب التفريغ (إلزامي) — سيُلغى الطلب: ' + orderLabel(o) + ' — ' + money(calcOrder(o).total, false), placeholder: 'مثال: الزبون غادر دون طلب', ok: 'تفريغ' });
+    if (why == null) return;
+    if (!String(why).trim()) return toast('اكتب سبب التفريغ', 'error');
+    DB.open = DB.open.filter(x => x.id !== id);
+    if (POS.cur && POS.cur.id === id) POS.cur = POS.blank();
+    logAct('تفريغ طاولة', tableName(o.tableId) + ' — ' + orderLabel(o) + ' — ' + money(calcOrder(o).total, false) + ' — السبب: ' + String(why).trim());
+    Store.save(); toast('تم تفريغ الطاولة', 'success'); if (App.view === 'tables') App.go('tables');
+  }
 };
 POS.newOrderOnTable = function (tid) {
   if (this.cur.items.length && !this.cur.id) {
