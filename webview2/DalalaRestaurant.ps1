@@ -114,22 +114,30 @@ function global:Save-NetConfig($c) {
     [IO.File]::WriteAllText((Get-NetFile), $global:Ser.Serialize($c), [Text.UTF8Encoding]::new($false))
 }
 function global:Get-LanAddresses {
-    $out = @()
+    # عناوين الشبكة الحقيقية أولًا (التي لها بوابة)، والوهمية (VMware / Hyper-V / VirtualBox / WSL) في الآخر
+    $real = @(); $virt = @()
     try {
         foreach ($ni in [Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces()) {
-            if ($ni.OperationalStatus -ne 'Up' -or $ni.NetworkInterfaceType -eq 'Loopback') { continue }
-            foreach ($ua in $ni.GetIPProperties().UnicastAddresses) { if ($ua.Address.AddressFamily -eq 'InterNetwork') { $out += $ua.Address.IPAddressToString } }
+            if ($ni.OperationalStatus -ne 'Up' -or $ni.NetworkInterfaceType -eq 'Loopback' -or $ni.NetworkInterfaceType -eq 'Tunnel') { continue }
+            $ip = $ni.GetIPProperties()
+            $isVirtual = (($ni.Name + ' ' + $ni.Description) -match 'VMware|VirtualBox|Hyper-V|vEthernet|Virtual|TAP|WSL|Bluetooth|Npcap|Loopback')
+            $hasGw = (@($ip.GatewayAddresses | Where-Object { $_.Address.AddressFamily -eq 'InterNetwork' -and $_.Address.ToString() -ne '0.0.0.0' }).Count -gt 0)
+            foreach ($ua in $ip.UnicastAddresses) {
+                if ($ua.Address.AddressFamily -ne 'InterNetwork') { continue }
+                $a = $ua.Address.IPAddressToString; if ($a -like '169.254.*') { continue }
+                if ($hasGw -and -not $isVirtual) { $real += $a } else { $virt += $a }
+            }
         }
     } catch {}
-    return $out
+    return @($real + $virt)
 }
 function global:Ensure-Firewall([int]$Port) {
     # قاعدة جدار الحماية للمنفذ (تحتاج صلاحية مدير: تظهر نافذة UAC مرة واحدة)
     try {
-        $rule = 'Dalala Restaurant ' + $Port
+        $rule = 'Dalala Restaurant LAN ' + $Port
         & "$env:SystemRoot\System32\netsh.exe" advfirewall firewall show rule name="$rule" | Out-Null
         if ($LASTEXITCODE -eq 0) { return }
-        Start-Process -FilePath "$env:SystemRoot\System32\netsh.exe" -ArgumentList @('advfirewall', 'firewall', 'add', 'rule', "name=$rule", 'dir=in', 'action=allow', 'protocol=TCP', "localport=$Port", 'profile=private,domain') -Verb RunAs -WindowStyle Hidden -Wait | Out-Null
+        Start-Process -FilePath "$env:SystemRoot\System32\netsh.exe" -ArgumentList @('advfirewall', 'firewall', 'add', 'rule', "name=$rule", 'dir=in', 'action=allow', 'protocol=TCP', "localport=$Port", 'profile=any') -Verb RunAs -WindowStyle Hidden -Wait | Out-Null
     } catch {}
 }
 function global:Start-Servers($Net) {
@@ -139,6 +147,7 @@ function global:Start-Servers($Net) {
     if ($Net.mode -eq 'host') {
         if (-not $Net.key) { $Net.key = [DalalaRestaurant.NetServer]::NewKey(); Save-NetConfig $Net }
         $dir = Join-Path $global:DataDir 'shared'
+        Ensure-Firewall ([int]$Net.port)
         $global:NetSrv = [DalalaRestaurant.NetServer]::new([int]$Net.port, [string]$Net.key, $dir, $null)
         try { $global:NetSrv.WebRoot = (Join-Path $web 'waiter') } catch {}
         try { $global:NetSrv.Listen(); Write-AppError 'net server' ('listening on port ' + $Net.port) } catch {
