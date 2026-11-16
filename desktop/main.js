@@ -11,6 +11,15 @@ const PRODUCT = lic.PRODUCT;
 app.setAppUserModelId('ly.dalala.' + PRODUCT.id);
 if (!app.requestSingleInstanceLock()) app.quit();
 Menu.setApplicationMenu(null);
+// old graphics drivers (common on Windows 7 POS machines): Chromium falls back to software drawing by itself;
+// after a GPU crash the next start also runs without GPU acceleration (no relaunch, so nothing is interrupted)
+const GPU_OFF = () => path.join(app.getPath('userData'), 'gpu-off');
+try { if (fs.existsSync(GPU_OFF())) app.disableHardwareAcceleration(); } catch (e) { /* ignore */ }
+app.on('child-process-gone', (_e, d) => {
+  if (d && d.type === 'GPU' && d.reason !== 'clean-exit' && !fs.existsSync(GPU_OFF())) {
+    try { fs.mkdirSync(app.getPath('userData'), { recursive: true }); fs.writeFileSync(GPU_OFF(), String(d.reason || '')); } catch (e) { /* ignore */ }
+  }
+});
 
 let win = null, actWin = null, state = { ok: false, reason: 'none' }, lastSaved = '';
 
@@ -20,12 +29,33 @@ const NET_DEFAULT = { mode: 'local', port: 47630, key: '', host: '' };
 const netFile = () => path.join(app.getPath('userData'), 'network.json');
 function netConfig() { try { return { ...NET_DEFAULT, ...JSON.parse(fs.readFileSync(netFile(), 'utf8')) }; } catch (e) { return { ...NET_DEFAULT }; } }
 let NET = null, server = null, serverError = '';
-function lanAddresses() { return Object.values(os.networkInterfaces()).flat().filter(n => n && n.family === 'IPv4' && !n.internal).map(n => n.address); }
+// real network addresses first; virtual adapters (VMware / Hyper-V / VirtualBox / WSL / Bluetooth) last
+function lanAddresses() {
+  const real = [], virt = [];
+  for (const [name, list] of Object.entries(os.networkInterfaces())) for (const n of list || []) {
+    if (!n || (n.family !== 'IPv4' && n.family !== 4) || n.internal || /^169\.254\./.test(n.address)) continue;
+    (/VMware|VirtualBox|Hyper-V|vEthernet|Virtual|TAP|WSL|Bluetooth|Npcap|Loopback/i.test(name) ? virt : real).push(n.address);
+  }
+  return [...real, ...virt];
+}
+// Windows firewall rule for the shared-database port (asks for admin rights once — UAC)
+function ensureFirewall(port) {
+  if (process.platform !== 'win32') return;
+  const { execFile } = require('child_process');
+  const netsh = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'netsh.exe');
+  const rule = 'Dalala Restaurant LAN ' + port;
+  execFile(netsh, ['advfirewall', 'firewall', 'show', 'rule', 'name=' + rule], { windowsHide: true }, err => {
+    if (!err) return; // already there
+    const args = `'advfirewall','firewall','add','rule','name=${rule}','dir=in','action=allow','protocol=TCP','localport=${port}','profile=any'`;
+    execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-Command', `Start-Process -FilePath '${netsh}' -ArgumentList ${args} -Verb RunAs -WindowStyle Hidden -Wait`], { windowsHide: true }, () => {});
+  });
+}
 async function startServer() {
   if (NET.mode !== 'host') return;
   if (!NET.key) { NET.key = net.newKey(); fs.writeFileSync(netFile(), JSON.stringify(NET, null, 1)); }
   let rules = {}; try { rules = require('./netrules'); } catch (e) { /* no product rules */ }
-  server = net.createServer({ rules, port: NET.port, key: NET.key, dir: path.join(app.getPath('userData'), 'shared'), onEvent: (k, m) => { if (k === 'error') serverError = m; } });
+  ensureFirewall(NET.port);
+  server = net.createServer({ rules, port: NET.port, key: NET.key, dir: path.join(app.getPath('userData'), 'shared'), webRoot: path.join(__dirname, 'web', 'waiter'), onEvent: (k, m) => { if (k === 'error') serverError = m; } });
   try { await server.listen(); } catch (e) { serverError = e.message; dialog.showErrorBox(PRODUCT.nameAr, `تعذر تشغيل خادم الشبكة على المنفذ ${NET.port}.\n${e.message}`); server = null; }
 }
 function ping(host, port, key) {
@@ -44,6 +74,7 @@ ipcMain.handle('net:test', (_e, { host, port, key }) => ping(String(host || '').
 ipcMain.handle('net:set', (_e, cfg) => {
   const next = { ...NET_DEFAULT, ...NET, mode: ['local', 'host', 'client'].includes(cfg.mode) ? cfg.mode : 'local', port: Math.min(65000, Math.max(1024, +cfg.port || NET_DEFAULT.port)), host: String(cfg.host || '').trim(), key: cfg.mode === 'client' ? String(cfg.key || '').trim().toUpperCase() : (NET.key || '') };
   fs.writeFileSync(netFile(), JSON.stringify(next, null, 1));
+  if (next.mode === 'host') ensureFirewall(next.port);
   setTimeout(() => { app.relaunch(); app.exit(0); }, 300);
   return true;
 });
@@ -117,10 +148,13 @@ ipcMain.handle('print:run', (e, o = {}) => new Promise(resolve => {
 /* silent printing of an HTML document (receipts / reports) on a chosen printer, via a hidden window */
 ipcMain.handle('print:html', async (e, html, o = {}) => {
   if (!fromMain(e)) return { ok: false, error: 'denied' };
-  let w = null;
+  let w = null, tmp = '';
   try {
     w = new BrowserWindow({ show: false, width: 900, height: 1200, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, javascript: true, devTools: false } });
-    await w.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(String(html || '')));
+    tmp = path.join(os.tmpdir(), `dalala-print-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.html`);
+    fs.writeFileSync(tmp, String(html || ''), 'utf8');
+    await w.loadFile(tmp);
+    await w.webContents.executeJavaScript('document.fonts && document.fonts.ready ? document.fonts.ready.then(() => 1) : 1').catch(() => 1);
     const paper = +o.paper || 80, copies = Math.max(1, Math.min(5, parseInt(o.copies) || 1));
     let pageSize = 'A4';
     if (paper !== 210) {
@@ -130,7 +164,7 @@ ipcMain.handle('print:html', async (e, html, o = {}) => {
     const r = await new Promise(resolve => w.webContents.print({ silent: !!o.silent, deviceName: String(o.deviceName || ''), printBackground: true, copies, margins: { marginType: 'none' }, pageSize }, (ok, err) => resolve({ ok, error: ok ? '' : String(err || '') })));
     return r;
   } catch (err) { return { ok: false, error: String(err && err.message || err) }; }
-  finally { try { if (w) w.destroy(); } catch (x) { /* ignore */ } }
+  finally { try { if (w) w.destroy(); } catch (x) { /* ignore */ } try { if (tmp) fs.rmSync(tmp, { force: true }); } catch (x) { /* ignore */ } }
 });
 /* automatic backups: <userData>/backups/<name>.json, daily ones kept for 30 days */
 const BK_DIR = () => path.join(app.getPath('userData'), 'backups');

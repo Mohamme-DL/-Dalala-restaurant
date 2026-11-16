@@ -47,8 +47,8 @@ function cleanSerial(s) {
   return t;
 }
 function machineGuid() {
-  const out = run('reg', ['query', 'HKLM\\SOFTWARE\\Microsoft\\Cryptography', '/v', 'MachineGuid', '/reg:64']);
-  const m = out.match(/MachineGuid\s+REG_SZ\s+([0-9a-fA-F-]+)/); return m ? m[1] : '';
+  const q = extra => { const out = run('reg', ['query', 'HKLM\\SOFTWARE\\Microsoft\\Cryptography', '/v', 'MachineGuid', ...extra]); const m = out.match(/MachineGuid\s+REG_SZ\s+([0-9a-fA-F-]+)/); return m ? m[1] : ''; };
+  return q(['/reg:64']) || q([]); // 32-bit Windows 7: no 64-bit view
 }
 let cachedId = null;
 function deviceId() {
