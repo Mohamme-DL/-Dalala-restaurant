@@ -246,7 +246,7 @@ function defaultData() {
       name: 'مطعم وكافيه دلالة', address: 'طرابلس - ليبيا', phone: '09xxxxxxxx', logo: '',
       currency: 'د.ل', decimals: 2, taxRate: 0, serviceRate: 0, serviceDineOnly: true, deliveryFee: 5, deliveryFeeTo: 'driver',
       footer: 'شكراً لزيارتكم .. نتمنى رؤيتكم مجدداً', paper: 80, autoPrint: true, kitchenPrint: true,
-      kitchenCopies: 1, receiptCopies: 1, silentPrint: true, printerName: '', kitchenPrinter: '',
+      kitchenCopies: 1, receiptCopies: 1, silentPrint: true, printerName: '', kitchenPrinter: '', kitchenPrinter2: '', kitchenPrinter3: '', kitchenPrinter4: '', kitchenLabel1: '', kitchenLabel2: '', kitchenLabel3: '', kitchenLabel4: '',
       mode: 'restaurant', modeChosen: false, quickPopup: false,
       requireShift: true, nextInvoice: 1001, dailyNo: { day: '', n: 0 }, showImages: true, sound: true,
       lowStockAlert: 5, autoBackup: true
@@ -2236,7 +2236,12 @@ VIEWS.settings = (el) => {
       ${sw('kitchenPrint', isQuick() ? 'طباعة تذكرة تحضير (للباريستا) مع كل بيع' : 'طباعة تذكرة المطبخ عند الحفظ/الإرسال')}
       ${PRN() ? `${sw('silentPrint', 'طباعة مباشرة بدون نافذة (صامتة)', 'تُطبع مباشرة بلا أي نافذة على الطابعة المحددة أدناه (أو طابعة ويندوز الافتراضية إن لم تُحدَّد)')}
         <div class="grid sm:grid-cols-2 gap-3 mt-3"><div><label class="lbl">طابعة الفواتير</label><select class="inp" id="prnR" onchange="Cfg.v('printerName',this.value)"><option value="">الطابعة الافتراضية</option></select></div>
-        <div><label class="lbl">طابعة المطبخ</label><select class="inp" id="prnK" onchange="Cfg.v('kitchenPrinter',this.value)"><option value="">نفس طابعة الفواتير</option></select></div></div>` :
+        </div>
+        <div class="mt-3"><div class="lbl">طابعات المطبخ (حتى 4) — نفس تذكرة المطبخ تُطبع على كل طابعة مختارة</div>
+          ${[1, 2, 3, 4].map(n => `<div class="mt-2" style="display:grid;grid-template-columns:64px 1fr 1fr;gap:8px;align-items:center"><span class="text-xs text-slate-400">طابعة ${n}</span>
+            <input class="inp py-1.5 text-xs" placeholder="اسم القسم (اختياري) مثل: المشويات" value="${esc(s['kitchenLabel' + n] || '')}" onchange="Cfg.v('kitchenLabel${n}',this.value.trim())">
+            <select class="inp py-1.5 text-xs" id="prnK${n}" onchange="Cfg.v('${n === 1 ? 'kitchenPrinter' : 'kitchenPrinter' + n}',this.value)"><option value="">${n === 1 ? 'نفس طابعة الفواتير' : '— غير مستخدمة —'}</option></select></div>`).join('')}
+          <p class="text-[11px] text-slate-500 mt-1">اسم القسم يُطبع أعلى التذكرة ليعرف كل قسم نسخته. عند اختيار أكثر من طابعة تُطبع تذكرة المطبخ مباشرة على كل الطابعات.</p></div>` :
       `<p class="text-[11px] text-slate-500 mt-2">للطباعة المباشرة بدون نافذة وتحديد طابعة للمطبخ استخدم نسخة البرنامج (Dalala.exe).</p>`}
       <div class="flex gap-2 mt-4"><button class="btn-ghost text-xs" onclick="Printer.test()"><i class="fa-solid fa-print"></i> طباعة تجريبية</button></div>
     </div>
@@ -2263,7 +2268,7 @@ VIEWS.settings = (el) => {
     <p class="text-center text-xs text-slate-600 mt-6">منظومة دلالة للمطاعم والكافيهات — الإصدار ${APP_VERSION}</p>`;
   Backup.renderList($('#bkList'));
   if (PRN() && PRN().printers) PRN().printers().then(list => { list = (list || []).map(x => typeof x === 'string' ? { name: x } : x);
-    ['prnR', 'prnK'].forEach((id, i) => { const sel = $('#' + id); if (!sel) return; const cur = i ? s.kitchenPrinter : s.printerName; list.forEach(p => sel.insertAdjacentHTML('beforeend', `<option ${p.name === cur ? 'selected' : ''}>${esc(p.name)}</option>`)); });
+    [['prnR', 'printerName'], ['prnK1', 'kitchenPrinter'], ['prnK2', 'kitchenPrinter2'], ['prnK3', 'kitchenPrinter3'], ['prnK4', 'kitchenPrinter4']].forEach(([id, key]) => { const sel = $('#' + id); if (!sel) return; const cur = s[key]; list.forEach(p => sel.insertAdjacentHTML('beforeend', `<option ${p.name === cur ? 'selected' : ''}>${esc(p.name)}</option>`)); });
   });
 };
 // طبقة الطباعة: نسخة Electron (window.dalala) أو نسخة WebView2 (window.dalalaPrint)
@@ -2716,7 +2721,7 @@ const Printer = {
   },
   doc(body, paper) { return `<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><style>${this.css(paper)}</style></head><body>${body}</body></html>`; },
 
-  print(body, { kitchen = false, copies = 1, paper: pp } = {}) {
+  print(body, { kitchen = false, copies = 1, paper: pp, device = null, forceDirect = false } = {}) {
     const s = S(), paper = pp || s.paper;
     copies = Math.max(1, Math.min(5, parseInt(copies) || 1));
     const dialog = () => {
@@ -2735,9 +2740,9 @@ const Printer = {
       });
       Printer._q = (Printer._q || Promise.resolve()).then(job, job);
     };
-    if (PRN() && s.silentPrint) {
+    if (PRN() && (s.silentPrint || forceDirect)) {
       const html = this.doc(body, paper);
-      PRN().print(html, { silent: true, deviceName: (kitchen && s.kitchenPrinter) || s.printerName || '', copies, paper })
+      PRN().print(html, { silent: true, deviceName: device !== null ? device : ((kitchen && s.kitchenPrinter) || s.printerName || ''), copies, paper })
         .then(r => { if (r && r.ok === false) toast('تعذرت الطباعة المباشرة: ' + (r.error || 'تحقق من الطابعة') + ' — راجع اسم الطابعة في الإعدادات', 'error'); })
         .catch(e => toast('تعذرت الطباعة المباشرة: ' + ((e && e.message) || e || 'خطأ غير معروف'), 'error'));
       return;
@@ -2786,7 +2791,26 @@ const Printer = {
       <div class="row sm"><span>${fmtDT(t.at)}</span><span>${esc(t.user || '')}</span></div><div class="hr2"></div>
       <table><tbody>${t.items.map(i => `<tr><td class="b big" style="width:18%">${i.qty} ×</td><td class="b big">${esc(i.name)}${i.note ? `<div style="font-size:.75em">» ${esc(i.note)}</div>` : ''}</td></tr>`).join('')}</tbody></table>
       ${t.note ? `<div class="hr"></div><div class="b">ملاحظة: ${esc(t.note)}</div>` : ''}<div class="hr2"></div>`;
-    this.print(body, { kitchen: true, copies: S().kitchenCopies });
+    const s = S(), list = this.kitchenList();
+    if (list.length <= 1) {
+      const one = list[0];
+      return this.print((one && one.label ? `<div class="c b">${esc(one.label)}</div>` : '') + body, { kitchen: true, copies: s.kitchenCopies });
+    }
+    // أكثر من طابعة مطبخ: نفس التذكرة تُطبع مباشرة على كل طابعة (لا يمكن اختيار طابعة محددة من نافذة الطباعة)
+    if (!PRN()) return this.print(body, { kitchen: true, copies: s.kitchenCopies });
+    list.forEach(k => this.print((k.label ? `<div class="c b">${esc(k.label)}</div>` : '') + body, { kitchen: true, copies: s.kitchenCopies, device: k.printer, forceDirect: true }));
+  },
+  // طابعات المطبخ (حتى 4): الأولى «نفس طابعة الفواتير» إن تُركت فارغة، والباقي اختيارية
+  kitchenList() {
+    const s = S(), out = [], seen = new Set();
+    [1, 2, 3, 4].forEach(n => {
+      const prn = n === 1 ? (s.kitchenPrinter || '') : (s['kitchenPrinter' + n] || '');
+      if (n > 1 && !prn) return;
+      const dev = prn || s.printerName || '';
+      if (seen.has(dev)) return; seen.add(dev);
+      out.push({ n, printer: dev, label: String(s['kitchenLabel' + n] || '').trim() });
+    });
+    return out;
   },
 
   shiftReport(sh) {
