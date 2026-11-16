@@ -246,7 +246,7 @@ function defaultData() {
       name: 'مطعم وكافيه دلالة', address: 'طرابلس - ليبيا', phone: '09xxxxxxxx', logo: '',
       currency: 'د.ل', decimals: 2, taxRate: 0, serviceRate: 0, serviceDineOnly: true, deliveryFee: 5, deliveryFeeTo: 'driver',
       footer: 'شكراً لزيارتكم .. نتمنى رؤيتكم مجدداً', paper: 80, autoPrint: true, kitchenPrint: true,
-      kitchenCopies: 1, receiptCopies: 1, silentPrint: true, printerName: '', kitchenPrinter: '', kitchenPrinter2: '', kitchenPrinter3: '', kitchenPrinter4: '', kitchenLabel1: '', kitchenLabel2: '', kitchenLabel3: '', kitchenLabel4: '',
+      kitchenCopies: 1, receiptCopies: 1, silentPrint: true, printerName: '', a4Printer: '', kitchenPrinter: '', kitchenPrinter2: '', kitchenPrinter3: '', kitchenPrinter4: '', kitchenLabel1: '', kitchenLabel2: '', kitchenLabel3: '', kitchenLabel4: '',
       mode: 'restaurant', modeChosen: false, quickPopup: false,
       requireShift: true, nextInvoice: 1001, dailyNo: { day: '', n: 0 }, showImages: true, sound: true,
       lowStockAlert: 5, autoBackup: true
@@ -1688,13 +1688,14 @@ Inv.view = function (id) {
     <div class="flex gap-2 justify-between mt-5 flex-wrap"><div class="flex gap-2"><button class="btn-ghost" data-nx title="الفاتورة الأحدث"><i class="fa-solid fa-chevron-right"></i></button><button class="btn-ghost" data-pv title="الفاتورة الأقدم"><i class="fa-solid fa-chevron-left"></i></button></div><div class="flex gap-2">
       ${o.status === 'paid' ? `<button class="btn-ghost text-amber-300" data-edit><i class="fa-solid fa-pen-to-square"></i> تعديل</button>` : ''}
       ${o.status === 'paid' ? `<button class="btn-ghost text-rose-300" data-void><i class="fa-solid fa-ban"></i> إلغاء / إرجاع</button>` : ''}
-      <button class="btn-primary" data-print><i class="fa-solid fa-print"></i> إعادة طباعة</button></div></div>`,
+      <button class="btn-ghost" data-print-a4><i class="fa-solid fa-file-lines"></i> طباعة A4</button><button class="btn-primary" data-print><i class="fa-solid fa-print"></i> إعادة طباعة</button></div></div>`,
     { title: 'فاتورة رقم ' + o.no, icon: 'fa-receipt', size: 'max-w-xl' });
   const ids = Inv.ids(), ix = ids.indexOf(o.id), go = j => { const n = ids[j]; if (n) { Modal.close(); Inv.view(n); } };
   $('[data-nx]', w).onclick = () => go(ix - 1); $('[data-pv]', w).onclick = () => go(ix + 1);
   $('[data-nx]', w).disabled = ix <= 0; $('[data-pv]', w).disabled = ix < 0 || ix >= ids.length - 1;
   const ed = $('[data-edit]', w); if (ed) ed.onclick = () => { Modal.close(); Inv.edit(o.id); };
   $('[data-print]', w).onclick = () => Printer.receipt(Object.assign({}, o, { copy: true }));
+  $('[data-print-a4]', w).onclick = () => Printer.receipt(Object.assign({}, o, { copy: true }), { paper: 210 });
   const v = $('[data-void]', w);
   if (v) v.onclick = async () => {
     if (!(await Perm.ask('refund', 'إلغاء أو إرجاع فاتورة'))) return;
@@ -2236,6 +2237,7 @@ VIEWS.settings = (el) => {
       ${sw('kitchenPrint', isQuick() ? 'طباعة تذكرة تحضير (للباريستا) مع كل بيع' : 'طباعة تذكرة المطبخ عند الحفظ/الإرسال')}
       ${PRN() ? `${sw('silentPrint', 'طباعة مباشرة بدون نافذة (صامتة)', 'تُطبع مباشرة بلا أي نافذة على الطابعة المحددة أدناه (أو طابعة ويندوز الافتراضية إن لم تُحدَّد)')}
         <div class="grid sm:grid-cols-2 gap-3 mt-3"><div><label class="lbl">طابعة الفواتير</label><select class="inp" id="prnR" onchange="Cfg.v('printerName',this.value)"><option value="">الطابعة الافتراضية</option></select></div>
+        <div><label class="lbl">طابعة ورق A4 (التقارير وفواتير A4)</label><select class="inp" id="prnA4" onchange="Cfg.v('a4Printer',this.value)"><option value="">نفس طابعة الفواتير / نافذة الطباعة</option></select></div>
         </div>
         <div class="mt-3"><div class="lbl">طابعات المطبخ (حتى 4) — نفس تذكرة المطبخ تُطبع على كل طابعة مختارة</div>
           ${[1, 2, 3, 4].map(n => `<div class="mt-2" style="display:grid;grid-template-columns:64px 1fr 1fr;gap:8px;align-items:center"><span class="text-xs text-slate-400">طابعة ${n}</span>
@@ -2268,7 +2270,7 @@ VIEWS.settings = (el) => {
     <p class="text-center text-xs text-slate-600 mt-6">منظومة دلالة للمطاعم والكافيهات — الإصدار ${APP_VERSION}</p>`;
   Backup.renderList($('#bkList'));
   if (PRN() && PRN().printers) PRN().printers().then(list => { list = (list || []).map(x => typeof x === 'string' ? { name: x } : x);
-    [['prnR', 'printerName'], ['prnK1', 'kitchenPrinter'], ['prnK2', 'kitchenPrinter2'], ['prnK3', 'kitchenPrinter3'], ['prnK4', 'kitchenPrinter4']].forEach(([id, key]) => { const sel = $('#' + id); if (!sel) return; const cur = s[key]; list.forEach(p => sel.insertAdjacentHTML('beforeend', `<option ${p.name === cur ? 'selected' : ''}>${esc(p.name)}</option>`)); });
+    [['prnR', 'printerName'], ['prnA4', 'a4Printer'], ['prnK1', 'kitchenPrinter'], ['prnK2', 'kitchenPrinter2'], ['prnK3', 'kitchenPrinter3'], ['prnK4', 'kitchenPrinter4']].forEach(([id, key]) => { const sel = $('#' + id); if (!sel) return; const cur = s[key]; list.forEach(p => sel.insertAdjacentHTML('beforeend', `<option ${p.name === cur ? 'selected' : ''}>${esc(p.name)}</option>`)); });
   });
 };
 // طبقة الطباعة: نسخة Electron (window.dalala) أو نسخة WebView2 (window.dalalaPrint)
@@ -2348,6 +2350,14 @@ th.n,td.n{text-align:center}tfoot td{background:#e2e8f0!important;font-weight:80
       <div class="ft"><span>${esc(s.name)}</span><span>منظومة دلالة للمطاعم والمقاهي</span></div></body></html>`;
   },
   printA4(spec) {
+    const s = S();
+    // طباعة مباشرة على طابعة A4 المحددة (إن كانت الطباعة المباشرة مفعّلة)، وإلا نافذة الطباعة
+    if (PRN() && s.silentPrint && s.a4Printer) {
+      PRN().print(this.a4Html(spec), { silent: true, deviceName: s.a4Printer, copies: 1, paper: 210 })
+        .then(r => { if (r && r.ok === false) toast('تعذرت الطباعة على طابعة A4: ' + (r.error || 'تحقق من الطابعة'), 'error'); else toast('أُرسل التقرير إلى ' + s.a4Printer, 'success'); })
+        .catch(e => toast('تعذرت الطباعة على طابعة A4: ' + ((e && e.message) || e), 'error'));
+      return;
+    }
     const f = $('#printFrame');
     f.onload = () => { f.onload = null; try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { console.error(e); } setTimeout(() => window.focus(), 50); };
     f.srcdoc = this.a4Html(spec);
@@ -2707,7 +2717,7 @@ const Cfg = {
    ===================================================================== */
 const Printer = {
   css(paper) {
-    const w = paper === 210 ? '190mm' : '100%';
+    const w = '100%'; // A4: الهوامش تأتي من @page (12mm) — 190mm مع الهوامش كان يقص طرف الصفحة
     return `@page{size:${paper === 210 ? 'A4' : paper + 'mm auto'};margin:${paper === 210 ? '12mm' : '0'}}
       *{box-sizing:border-box;margin:0;padding:0}
       body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;direction:rtl;color:#000;background:#fff;width:${w};margin:0 auto;padding:${paper === 210 ? '0' : '3mm ' + (paper === 58 ? '2mm' : '3.5mm')};overflow-wrap:anywhere;font-size:${paper === 58 ? '11px' : '12px'};line-height:1.45}
@@ -2740,9 +2750,10 @@ const Printer = {
       });
       Printer._q = (Printer._q || Promise.resolve()).then(job, job);
     };
-    if (PRN() && (s.silentPrint || forceDirect)) {
+    // ورق A4 بدون طابعة A4 محددة: نافذة الطباعة (حتى لا يُرسل A4 إلى الطابعة الحرارية)
+    if (PRN() && (s.silentPrint || forceDirect) && !(paper === 210 && !s.a4Printer && device === null)) {
       const html = this.doc(body, paper);
-      PRN().print(html, { silent: true, deviceName: device !== null ? device : ((kitchen && s.kitchenPrinter) || s.printerName || ''), copies, paper })
+      PRN().print(html, { silent: true, deviceName: device !== null ? device : ((kitchen && s.kitchenPrinter) || (paper === 210 && s.a4Printer) || s.printerName || ''), copies, paper })
         .then(r => { if (r && r.ok === false) toast('تعذرت الطباعة المباشرة: ' + (r.error || 'تحقق من الطابعة') + ' — راجع اسم الطابعة في الإعدادات', 'error'); })
         .catch(e => toast('تعذرت الطباعة المباشرة: ' + ((e && e.message) || e || 'خطأ غير معروف'), 'error'));
       return;
@@ -2756,7 +2767,7 @@ const Printer = {
       ${s.address ? `<div class="c sm">${esc(s.address)}</div>` : ''}${s.phone ? `<div class="c sm">هاتف: ${esc(s.phone)}</div>` : ''}`;
   },
 
-  receipt(o) {
+  receipt(o, opt = {}) {
     const s = S();
     const typeLine = isQuick() && o.type === 'take' ? 'بيع مباشر' : o.type === 'dine' ? `صالة — طاولة ${esc(o.tableName || tableName(o.tableId))}` : TYPES[o.type].name;
     const r = (k, v, cls = '') => `<div class="row ${cls}"><span>${k}</span><span>${v}</span></div>`;
@@ -2781,7 +2792,7 @@ const Printer = {
       ${!o.pre ? `${o.pay.cash ? r('نقدي:', money(o.tendered || o.pay.cash)) : ''}${o.pay.card ? r('بطاقة:', money(o.pay.card)) : ''}${o.change ? r('الباقي:', money(o.change)) : ''}` : ''}
       ${o.note ? `<div class="hr"></div><div class="sm">ملاحظة: ${esc(o.note)}</div>` : ''}
       <div class="hr"></div><div class="c sum">${esc(s.footer)}</div><div class="c sm" style="margin-top:4px">منظومة دلالة</div>`;
-    this.print(body, { copies: o.pre ? 1 : s.receiptCopies });
+    this.print(body, { copies: opt.paper ? 1 : (o.pre ? 1 : s.receiptCopies), paper: opt.paper || undefined });
   },
 
   kitchen(t) {
