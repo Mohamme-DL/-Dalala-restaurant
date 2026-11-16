@@ -776,7 +776,8 @@ function calcOrder(o) {
   discountAmt = round(Math.min(discountAmt, subtotal));
   const after = subtotal - discountAmt;
   const service = round((s.serviceRate > 0 && (!s.serviceDineOnly || o.type === 'dine')) ? after * s.serviceRate / 100 : 0);
-  const delivery = o.type === 'delivery' ? round(+o.deliveryFee || 0) : 0;
+  // عند اختيار «لعامل التوصيل» لا تُضاف رسوم التوصيل للفاتورة إطلاقاً (اتفاق بين العامل والزبون)
+  const delivery = o.type === 'delivery' && !deliveryToDriver(o) ? round(+o.deliveryFee || 0) : 0;
   const tax = round(s.taxRate > 0 ? (after + service) * s.taxRate / 100 : 0);
   const total = round(after + service + tax + delivery);
   const qty = o.items.reduce((a, i) => a + i.qty, 0);
@@ -942,7 +943,7 @@ const POS = {
       `<div class="flex justify-between items-center text-slate-400"><button onclick="POS.discount()" class="text-sky-400 hover:text-sky-300 font-bold"><i class="fa-solid fa-tag"></i> الخصم${o.discount.value ? (o.discount.type === 'pct' ? ` (${o.discount.value}%)` : '') : ' — إضافة'}</button><span class="num font-semibold text-emerald-400">${c.discountAmt ? money(c.discountAmt) : money(0)}</span></div>` +
       (c.service ? line(`الخدمة (${S().serviceRate}%):`, money(c.service)) : '') +
       (c.tax ? line(`الضريبة (${S().taxRate}%):`, money(c.tax)) : '') +
-      (o.type === 'delivery' ? `<div class="flex justify-between text-slate-400"><button onclick="POS.editDelivery()" class="text-violet-300 font-bold"><i class="fa-solid fa-motorcycle"></i> رسوم التوصيل</button><span class="num font-semibold text-slate-200">${money(c.delivery)}</span></div>` : '') +
+      (o.type === 'delivery' && !deliveryToDriver(o) ? `<div class="flex justify-between text-slate-400"><button onclick="POS.editDelivery()" class="text-violet-300 font-bold"><i class="fa-solid fa-motorcycle"></i> رسوم التوصيل</button><span class="num font-semibold text-slate-200">${money(c.delivery)}</span></div>` : '') +
       `<div class="pt-2 mt-1 border-t border-slate-800 flex justify-between items-center"><span class="text-base font-bold text-slate-100">الإجمالي:</span><span class="text-2xl font-extrabold num text-emerald-400">${money(c.total)}</span></div>`;
 
     if (!$('#numpad').children.length) {
@@ -1280,7 +1281,7 @@ const POS = {
       id: o.id, no: s.nextInvoice++, dailyNo: o.dailyNo, date: Date.now(), openedAt: o.createdAt, type: o.type, tableId: o.tableId,
       tableName: o.tableId ? tableName(o.tableId) : '', items: o.items.map(i => ({ pid: i.pid, name: i.name, price: i.price, cost: i.cost || 0, qty: i.qty, note: i.note })),
       discount: o.discount, customer: o.customer, note: o.note,
-      subtotal: c.subtotal, discountAmt: c.discountAmt, service: c.service, tax: c.tax, delivery: c.delivery, deliveryTo: c.delivery ? (s.deliveryFeeTo || 'driver') : undefined, total: c.total,
+      subtotal: c.subtotal, discountAmt: c.discountAmt, service: c.service, tax: c.tax, delivery: c.delivery, deliveryTo: o.type === 'delivery' ? (c.delivery ? 'restaurant' : 'driver') : undefined, total: c.total,
       pay, tendered, change, method: pay.card && pay.cash ? 'split' : pay.card ? 'card' : 'cash',
       userId: by ? by.id : App.user.id, userName: by ? by.name : App.user.name, shiftId: sh ? sh.id : null, status: 'paid'
     };
@@ -1604,7 +1605,7 @@ Inv.edit = async function (id) {
     if (!(await confirmBox(c.editInv ? 'تم تعديل الفاتورة الحالية ولم تُحفظ. تجاهل التعديلات والانتقال؟' : 'يوجد طلب غير محفوظ في شاشة البيع سيتم تجاهله. متابعة؟', { ok: 'متابعة', danger: true }))) return;
   }
   POS.cur = { id: inv.id, editInv: inv.id, type: inv.type, tableId: inv.tableId || null, items: inv.items.map(i => ({ pid: i.pid, name: i.name, price: i.price, cost: i.cost || 0, qty: i.qty, note: i.note || '', sent: 0, kitchen: false })),
-    discount: clone(inv.discount || { type: 'pct', value: 0 }), customer: clone(inv.customer || { name: '', phone: '', address: '' }), deliveryFee: inv.delivery || 0, note: inv.note || '', createdAt: inv.openedAt || inv.date, dailyNo: inv.dailyNo };
+    discount: clone(inv.discount || { type: 'pct', value: 0 }), customer: clone(inv.customer || { name: '', phone: '', address: '' }), deliveryFee: inv.delivery || 0, deliveryTo: inv.delivery ? 'restaurant' : (inv.deliveryTo || undefined), note: inv.note || '', createdAt: inv.openedAt || inv.date, dailyNo: inv.dailyNo };
   POS._orig = JSON.stringify([POS.cur.items.map(i => [i.pid, i.qty, i.price, i.note]), POS.cur.discount, POS.cur.note]);
   POS.tendered = ''; POS.sel = null;
   if (App.view !== 'pos') App.go('pos'); else POS.render();
@@ -1635,7 +1636,7 @@ Inv.saveEdit = async function (method) {
   const items = cur.items.map(i => ({ pid: i.pid, name: i.name, price: i.price, cost: i.cost || 0, qty: i.qty, note: i.note }));
   items.forEach(i => { const p = DB.products.find(x => x.id === i.pid); if (p && p.trackStock) p.stock = round(p.stock - i.qty); });
   const before = inv.total;
-  Object.assign(inv, { items, mats: Inventory.consume(items), discount: cur.discount, customer: cur.customer, note: cur.note, subtotal: c.subtotal, discountAmt: c.discountAmt, service: c.service, tax: c.tax, delivery: c.delivery, total: c.total, pay, tendered, change, method: pay.card && pay.cash ? 'split' : pay.card ? 'card' : 'cash' });
+  Object.assign(inv, { items, mats: Inventory.consume(items), discount: cur.discount, customer: cur.customer, note: cur.note, subtotal: c.subtotal, discountAmt: c.discountAmt, service: c.service, tax: c.tax, delivery: c.delivery, deliveryTo: c.delivery ? (inv.deliveryTo || cur.deliveryTo || 'restaurant') : inv.deliveryTo, total: c.total, pay, tendered, change, method: pay.card && pay.cash ? 'split' : pay.card ? 'card' : 'cash' });
   inv.edits = (inv.edits || []).concat([{ at: Date.now(), by: App.user.name, from: before, to: c.total }]);
   logAct('تعديل فاتورة', '#' + inv.no + ' — ' + money(before) + ' ← ' + money(c.total));
   Store.saveNow();
@@ -2223,7 +2224,7 @@ VIEWS.settings = (el) => {
         <div><label class="lbl">الخانات العشرية</label><select class="inp" onchange="Cfg.v('decimals',+this.value)">${[0, 1, 2, 3].map(d => `<option ${s.decimals === d ? 'selected' : ''}>${d}</option>`).join('')}</select></div>
         ${inp('nextInvoice', 'رقم الفاتورة التالي', 'number')}
         ${inp('serviceRate', 'نسبة الخدمة %', 'number')}${inp('taxRate', 'نسبة الضريبة %', 'number')}${inp('deliveryFee', 'رسوم التوصيل الافتراضية', 'number')}</div>
-      <div class="mt-3"><label class="lbl">رسوم التوصيل لمن؟</label><select class="inp" onchange="Cfg.v('deliveryFeeTo',this.value)"><option value="driver" ${(s.deliveryFeeTo || 'driver') === 'driver' ? 'selected' : ''}>لعامل التوصيل — لا تُحسب في ربح المطعم ولا في نقد الصندوق</option><option value="restaurant" ${s.deliveryFeeTo === 'restaurant' ? 'selected' : ''}>للمطعم (عامل توصيل تابع للمطعم) — تُحسب دخلاً ضمن الربح</option></select><span class="block text-[11px] text-slate-500 mt-1">يُطبَّق على الفواتير الجديدة فقط؛ الفواتير السابقة تبقى كما سُجلت.</span></div>
+      <div class="mt-3"><label class="lbl">رسوم التوصيل لمن؟</label><select class="inp" onchange="Cfg.v('deliveryFeeTo',this.value)"><option value="driver" ${(s.deliveryFeeTo || 'driver') === 'driver' ? 'selected' : ''}>لعامل التوصيل — لا تُضاف للفاتورة (يتفق عليها العامل مع الزبون مباشرة)</option><option value="restaurant" ${s.deliveryFeeTo === 'restaurant' ? 'selected' : ''}>للمطعم (عامل توصيل تابع للمطعم) — تُضاف للفاتورة وتُحسب دخلاً ضمن الربح</option></select><span class="block text-[11px] text-slate-500 mt-1">عند اختيار «لعامل التوصيل» لا تظهر رسوم التوصيل في الكاشير ولا في الفاتورة، ولا علاقة للمنظومة بها. «رسوم التوصيل الافتراضية» تُستخدم فقط عند اختيار «للمطعم». الفواتير السابقة تبقى كما سُجلت.</span></div>
       ${sw('serviceDineOnly', 'الخدمة على طلبات الصالة فقط')}
       ${sw('requireShift', 'إلزام فتح وردية قبل البيع', 'لتتبع النقد في الدرج ومطابقته عند الإغلاق')}
       ${inp('lowStockAlert', 'تنبيه انخفاض المخزون عند', 'number')}
@@ -2623,7 +2624,7 @@ document.addEventListener('keydown', e => {
 document.addEventListener('wheel', e => { if (e.ctrlKey) { e.preventDefault(); Theme.step(e.deltaY < 0 ? 1 : -1); } }, { passive: false });
 if (window.matchMedia) { try { window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => { if (Theme.get().mode === 'auto') Theme.apply(); }); } catch (e) {} }
 const Cfg = {
-  v(k, val) { S()[k] = val; Store.save(); if (['name', 'logo'].includes(k)) App.brand(); if (['silentPrint', 'decimals', 'currency'].includes(k)) App.refresh(); toast('تم الحفظ', 'success'); },
+  v(k, val) { S()[k] = val; Store.save(); if (['name', 'logo'].includes(k)) App.brand(); if (['silentPrint', 'decimals', 'currency'].includes(k)) App.refresh(); if (k === 'deliveryFeeTo' && window.POS && POS.cur && POS.renderOrder) try { POS.renderOrder(); } catch (e) {} toast('تم الحفظ', 'success'); },
   async logo(inp) { const f = inp.files[0]; if (!f) return; S().logo = await resizeImage(await readFileAs(f, 'url'), 300); Store.save(); App.brand(); App.refresh(); },
   async addTables() {
     const w = Modal.open(`<div class="grid grid-cols-2 gap-3"><div><label class="lbl">عدد الطاولات</label><input class="inp num" type="number" value="4" data-n></div>

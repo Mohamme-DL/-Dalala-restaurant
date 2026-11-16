@@ -297,7 +297,7 @@ function calc(o) {
   disc = round(Math.min(disc, sub)); const after = sub - disc;
   const service = round((s.serviceRate > 0 && (!s.serviceDineOnly || o.type === 'dine')) ? after * s.serviceRate / 100 : 0);
   const tax = round(s.taxRate > 0 ? (after + service) * s.taxRate / 100 : 0);
-  return { total: round(after + service + tax + (o.type === 'delivery' ? (+o.deliveryFee || 0) : 0)) };
+  return { total: round(after + service + tax + (o.type === 'delivery' && (o.deliveryTo || S().deliveryFeeTo || 'driver') !== 'driver' ? (+o.deliveryFee || 0) : 0)) };
 }
 function renderTable(a) {
   const sc = {}; ['.prods', '.cats', '.cart .list'].forEach(k => { const e = $(k); if (e) sc[k] = [e.scrollTop, e.scrollLeft]; });
