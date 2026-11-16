@@ -1688,14 +1688,13 @@ Inv.view = function (id) {
     <div class="flex gap-2 justify-between mt-5 flex-wrap"><div class="flex gap-2"><button class="btn-ghost" data-nx title="الفاتورة الأحدث"><i class="fa-solid fa-chevron-right"></i></button><button class="btn-ghost" data-pv title="الفاتورة الأقدم"><i class="fa-solid fa-chevron-left"></i></button></div><div class="flex gap-2">
       ${o.status === 'paid' ? `<button class="btn-ghost text-amber-300" data-edit><i class="fa-solid fa-pen-to-square"></i> تعديل</button>` : ''}
       ${o.status === 'paid' ? `<button class="btn-ghost text-rose-300" data-void><i class="fa-solid fa-ban"></i> إلغاء / إرجاع</button>` : ''}
-      <button class="btn-ghost" data-print-a4><i class="fa-solid fa-file-lines"></i> طباعة A4</button><button class="btn-primary" data-print><i class="fa-solid fa-print"></i> إعادة طباعة</button></div></div>`,
+      <button class="btn-primary" data-print><i class="fa-solid fa-print"></i> إعادة طباعة</button></div></div>`,
     { title: 'فاتورة رقم ' + o.no, icon: 'fa-receipt', size: 'max-w-xl' });
   const ids = Inv.ids(), ix = ids.indexOf(o.id), go = j => { const n = ids[j]; if (n) { Modal.close(); Inv.view(n); } };
   $('[data-nx]', w).onclick = () => go(ix - 1); $('[data-pv]', w).onclick = () => go(ix + 1);
   $('[data-nx]', w).disabled = ix <= 0; $('[data-pv]', w).disabled = ix < 0 || ix >= ids.length - 1;
   const ed = $('[data-edit]', w); if (ed) ed.onclick = () => { Modal.close(); Inv.edit(o.id); };
   $('[data-print]', w).onclick = () => Printer.receipt(Object.assign({}, o, { copy: true }));
-  $('[data-print-a4]', w).onclick = () => Printer.receipt(Object.assign({}, o, { copy: true }), { paper: 210 });
   const v = $('[data-void]', w);
   if (v) v.onclick = async () => {
     if (!(await Perm.ask('refund', 'إلغاء أو إرجاع فاتورة'))) return;
@@ -2231,13 +2230,13 @@ VIEWS.settings = (el) => {
       ${inp('lowStockAlert', 'تنبيه انخفاض المخزون عند', 'number')}
     </div>
     <div class="card p-5"><h3 class="font-bold mb-4"><i class="fa-solid fa-print text-indigo-400"></i> الطباعة</h3>
-      <div class="grid sm:grid-cols-3 gap-3 mb-2"><div><label class="lbl">عرض ورق الفاتورة</label><select class="inp" onchange="Cfg.v('paper',+this.value)">${[[80, '80 مم (حراري)'], [58, '58 مم (حراري صغير)'], [210, 'A4']].map(([v, t]) => `<option value="${v}" ${s.paper === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+      <div class="grid sm:grid-cols-3 gap-3 mb-2"><div><label class="lbl">عرض ورق الفاتورة</label><select class="inp" onchange="Cfg.v('paper',+this.value)">${[[80, '80 مم (حراري)'], [58, '58 مم (حراري صغير)']].map(([v, t]) => `<option value="${v}" ${s.paper === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
         ${inp('receiptCopies', 'نسخ فاتورة الزبون', 'number', 'min="1" max="5"')}${inp('kitchenCopies', 'نسخ تذكرة المطبخ', 'number', 'min="1" max="5"')}</div>
       ${sw('autoPrint', 'طباعة الفاتورة تلقائياً بعد الدفع')}
       ${sw('kitchenPrint', isQuick() ? 'طباعة تذكرة تحضير (للباريستا) مع كل بيع' : 'طباعة تذكرة المطبخ عند الحفظ/الإرسال')}
       ${PRN() ? `${sw('silentPrint', 'طباعة مباشرة بدون نافذة (صامتة)', 'تُطبع مباشرة بلا أي نافذة على الطابعة المحددة أدناه (أو طابعة ويندوز الافتراضية إن لم تُحدَّد)')}
         <div class="grid sm:grid-cols-2 gap-3 mt-3"><div><label class="lbl">طابعة الفواتير</label><select class="inp" id="prnR" onchange="Cfg.v('printerName',this.value)"><option value="">الطابعة الافتراضية</option></select></div>
-        <div><label class="lbl">طابعة ورق A4 (التقارير وفواتير A4)</label><select class="inp" id="prnA4" onchange="Cfg.v('a4Printer',this.value)"><option value="">نفس طابعة الفواتير / نافذة الطباعة</option></select></div>
+        <div><label class="lbl">طابعة ورق A4 (التقارير والمصروفات)</label><select class="inp" id="prnA4" onchange="Cfg.v('a4Printer',this.value)"><option value="">نفس طابعة الفواتير / نافذة الطباعة</option></select></div>
         </div>
         <div class="mt-3"><div class="lbl">طابعات المطبخ (حتى 4) — نفس تذكرة المطبخ تُطبع على كل طابعة مختارة</div>
           ${[1, 2, 3, 4].map(n => `<div class="mt-2" style="display:grid;grid-template-columns:64px 1fr 1fr;gap:8px;align-items:center"><span class="text-xs text-slate-400">طابعة ${n}</span>
@@ -2732,7 +2731,7 @@ const Printer = {
   doc(body, paper) { return `<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><style>${this.css(paper)}</style></head><body>${body}</body></html>`; },
 
   print(body, { kitchen = false, copies = 1, paper: pp, device = null, forceDirect = false } = {}) {
-    const s = S(), paper = pp || s.paper;
+    const s = S(), paper = pp || (s.paper === 58 ? 58 : 80); // الإيصالات وتذاكر المطبخ وتقرير الوردية حرارية دائماً
     copies = Math.max(1, Math.min(5, parseInt(copies) || 1));
     const dialog = () => {
       const html = this.doc(Array.from({ length: copies }, () => `<div class="page">${body}</div>`).join(''), paper);
@@ -2792,7 +2791,8 @@ const Printer = {
       ${!o.pre ? `${o.pay.cash ? r('نقدي:', money(o.tendered || o.pay.cash)) : ''}${o.pay.card ? r('بطاقة:', money(o.pay.card)) : ''}${o.change ? r('الباقي:', money(o.change)) : ''}` : ''}
       ${o.note ? `<div class="hr"></div><div class="sm">ملاحظة: ${esc(o.note)}</div>` : ''}
       <div class="hr"></div><div class="c sum">${esc(s.footer)}</div><div class="c sm" style="margin-top:4px">منظومة دلالة</div>`;
-    this.print(body, { copies: opt.paper ? 1 : (o.pre ? 1 : s.receiptCopies), paper: opt.paper || undefined });
+    // فواتير البيع حرارية فقط (80 أو 58 مم)
+    this.print(body, { copies: o.pre ? 1 : s.receiptCopies, paper: s.paper === 58 ? 58 : 80 });
   },
 
   kitchen(t) {
