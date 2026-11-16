@@ -1771,11 +1771,13 @@ function reportData() {
   const all = DB.orders.filter(o => o.date >= a && o.date <= b), paid = all.filter(o => o.status === 'paid');
   const sum = (arr, f) => arr.reduce((s, o) => s + f(o), 0);
   const prod = {}, cat = {}, hour = Array(24).fill(0), byUser = {}, byType = {}, byDay = {};
-  let cost = 0;
+  let cost = 0; const noCost = new Set();
   paid.forEach(o => {
+    const dk0 = o.subtotal > 0 ? Math.max(0, 1 - (o.discountAmt || 0) / o.subtotal) : 1; // خصم الفاتورة يُوزَّع على أصنافها
     o.items.forEach(i => {
       const p = DB.products.find(x => x.id === i.pid);
-      const k = i.name; prod[k] = prod[k] || { qty: 0, total: 0 }; prod[k].qty += i.qty; prod[k].total += i.price * i.qty;
+      const k = i.name; prod[k] = prod[k] || { qty: 0, total: 0, net: 0, cost: 0 }; prod[k].qty += i.qty; prod[k].total += i.price * i.qty;
+      prod[k].net += i.price * i.qty * dk0; prod[k].cost += (i.cost || 0) * i.qty; if (!(i.cost > 0) && i.price > 0) noCost.add(k);
       const cn = p ? ((DB.categories.find(c => c.id === p.catId) || {}).name || 'أخرى') : 'أخرى'; cat[cn] = (cat[cn] || 0) + i.price * i.qty;
       cost += (i.cost || 0) * i.qty;
     });
@@ -1795,7 +1797,10 @@ function reportData() {
     cash: sum(paid, o => o.pay.cash), card: sum(paid, o => o.pay.card), voids: all.filter(o => o.status !== 'paid'),
     expenses: sum(exps, e => e.amount), expCats: exps.reduce((m, e) => (m[e.cat || 'أخرى'] = (m[e.cat || 'أخرى'] || 0) + e.amount, m), {}),
     purchases: sum(purs, x => x.total), purCount: purs.length, purMat: Object.values(purMat).sort((x, y) => y.total - x.total),
-    cost, netSales, profit: netSales - cost, net: netSales - sum(purs, x => x.total) - sum(exps, e => e.amount), prod, cat, hour, byUser, byType, byDay
+    // ربح الأصناف = المبيعات الصافية − تكلفة الأصناف المباعة | صافي الربح = ربح الأصناف − المصروفات (شراء المواد الخام لا يُخصم: تكلفته داخل الأصناف)
+    // صافي النقدية = المبيعات الصافية − المشتريات − المصروفات (حركة المال الفعلية في الفترة)
+    cost, netSales, profit: netSales - cost, netProfit: netSales - cost - sum(exps, e => e.amount), noCost: [...noCost],
+    net: netSales - sum(purs, x => x.total) - sum(exps, e => e.amount), prod, cat, hour, byUser, byType, byDay
   };
 }
 VIEWS.reports = (el) => {
@@ -1815,12 +1820,15 @@ VIEWS.reports = (el) => {
       ${kpi('عدد الفواتير', r.count, 'fa-receipt', 'text-sky-300', 'متوسط الفاتورة ' + money(r.avg))}
       ${kpi('المصروفات', money(r.expenses), 'fa-wallet', 'text-rose-400')}
       ${kpi('المشتريات', money(r.purchases), 'fa-cart-flatbed', 'text-orange-300', r.purCount + ' فاتورة شراء')}
-      ${kpi('صافي الربح', money(r.net), 'fa-chart-line', r.net >= 0 ? 'text-emerald-300' : 'text-rose-400', 'المبيعات − المشتريات − المصروفات' + (r.deliveryDriver ? ' − توصيل العامل' : ''))}
+      ${kpi('ربح الأصناف', money(r.profit), 'fa-coins', r.profit >= 0 ? 'text-emerald-300' : 'text-rose-400', 'المبيعات الصافية ' + money(r.netSales) + ' − تكلفة الأصناف ' + money(r.cost))}
+      ${kpi('صافي الربح', money(r.netProfit), 'fa-chart-line', r.netProfit >= 0 ? 'text-emerald-300' : 'text-rose-400', 'ربح الأصناف − المصروفات')}
+      ${kpi('صافي النقدية', money(r.net), 'fa-cash-register', r.net >= 0 ? 'text-teal-300' : 'text-rose-400', 'المبيعات − المشتريات − المصروفات (حركة المال)')}
       ${kpi('نقدي', money(r.cash), 'fa-money-bill-wave', 'text-teal-300')}
       ${kpi('بطاقة', money(r.card), 'fa-credit-card', 'text-indigo-300')}
       ${kpi('الخصومات', money(r.discount), 'fa-tag', 'text-amber-300')}
       ${kpi('ملغاة / مرتجعة', r.voids.length, 'fa-ban', 'text-rose-300', money(r.voids.reduce((s, o) => s + o.total, 0)))}
     </div>
+    ${r.noCost.length ? `<div class="card p-3 mb-3 border-amber-500/40 text-xs text-amber-200"><i class="fa-solid fa-triangle-exclamation"></i> أصناف بيعت بدون تكلفة (يُحسب ربحها كامل سعرها، فيظهر الربح أعلى من الحقيقي): <b>${r.noCost.slice(0, 12).map(esc).join('، ')}${r.noCost.length > 12 ? ' …' : ''}</b> — أدخل التكلفة أو الوصفة من صفحة الأصناف (تُطبَّق على المبيعات الجديدة).</div>` : ''}
     <div class="grid lg:grid-cols-2 gap-3 mb-3">
       <div class="card p-4"><h3 class="font-bold mb-3 text-sm"><i class="fa-solid fa-clock text-sky-400"></i> المبيعات حسب الساعة</h3>
         <div class="flex items-end gap-1 h-40 border-b border-slate-700">${r.hour.map((v, h) => `<div class="flex-1 flex flex-col items-center justify-end h-full group relative"><div class="w-full rounded-t bg-gradient-to-t from-sky-600 to-sky-400 ${v ? '' : 'opacity-20'}" style="height:${Math.max(v ? 4 : 1, v / maxH * 100)}%"></div><span class="absolute -top-5 text-[9px] num bg-slate-800 px-1 rounded hidden group-hover:block whitespace-nowrap">${money(v, false)}</span></div>`).join('')}</div>
@@ -1831,8 +1839,8 @@ VIEWS.reports = (el) => {
     </div>
     <div class="grid lg:grid-cols-3 gap-3 mb-3">
       <div class="card p-4 lg:col-span-2"><h3 class="font-bold mb-3 text-sm"><i class="fa-solid fa-trophy text-amber-400"></i> الأصناف الأكثر مبيعاً</h3>
-        <div class="max-h-80 overflow-auto"><table class="tbl"><thead><tr><th>#</th><th>الصنف</th><th>الكمية</th><th>المبيعات</th><th>النسبة</th></tr></thead><tbody>
-        ${top.map(([n, v], i) => `<tr><td class="num text-slate-500">${i + 1}</td><td>${esc(n)}</td><td class="num">${v.qty}</td><td class="num font-bold">${money(v.total)}</td><td class="num text-xs text-slate-400">${r.sales ? (v.total / (r.sales || 1) * 100).toFixed(1) : 0}%</td></tr>`).join('') || '<tr><td colspan="5" class="text-center text-slate-500 py-6">لا توجد مبيعات</td></tr>'}</tbody></table></div></div>
+        <div class="max-h-80 overflow-auto"><table class="tbl"><thead><tr><th>#</th><th>الصنف</th><th>الكمية</th><th>المبيعات</th><th>التكلفة</th><th>الربح</th><th>النسبة</th></tr></thead><tbody>
+        ${top.map(([n, v], i) => `<tr><td class="num text-slate-500">${i + 1}</td><td>${esc(n)}</td><td class="num">${v.qty}</td><td class="num font-bold">${money(v.total)}</td><td class="num text-xs text-slate-400">${money(v.cost)}</td><td class="num font-bold ${v.net - v.cost >= 0 ? 'text-emerald-300' : 'text-rose-400'}">${money(v.net - v.cost)}</td><td class="num text-xs text-slate-400">${r.sales ? (v.total / (r.sales || 1) * 100).toFixed(1) : 0}%</td></tr>`).join('') || '<tr><td colspan="7" class="text-center text-slate-500 py-6">لا توجد مبيعات</td></tr>'}</tbody></table></div></div>
       <div class="space-y-3">
         <div class="card p-4"><h3 class="font-bold mb-3 text-sm"><i class="fa-solid fa-user text-sky-400"></i> حسب الكاشير</h3>${bars(Object.entries(r.byUser), 'bg-sky-500')}</div>
         <div class="card p-4"><h3 class="font-bold mb-3 text-sm"><i class="fa-solid fa-wallet text-rose-400"></i> المصروفات حسب البند</h3>${bars(Object.entries(r.expCats), 'bg-rose-500')}</div>
@@ -1841,7 +1849,7 @@ VIEWS.reports = (el) => {
     <div class="card p-4 mb-3"><h3 class="font-bold mb-3 text-sm"><i class="fa-solid fa-cart-flatbed text-orange-300"></i> المشتريات (الكميات والأسعار)</h3>
       <div class="max-h-72 overflow-auto"><table class="tbl"><thead><tr><th>المادة</th><th>الكمية</th><th>متوسط سعر الوحدة</th><th>الإجمالي</th></tr></thead><tbody>
       ${r.purMat.map(x => `<tr><td>${esc(x.name)}</td><td class="num">${r3(x.qty)} ${esc(x.unit)}</td><td class="num">${money(x.qty ? x.total / x.qty : 0)}</td><td class="num font-bold">${money(x.total)}</td></tr>`).join('') || '<tr><td colspan="4" class="text-center text-slate-500 py-4">لا توجد مشتريات في هذه الفترة</td></tr>'}</tbody>
-      ${r.purMat.length ? `<tfoot><tr><td colspan="3" class="font-bold">الإجمالي (يُطرح من المبيعات)</td><td class="num font-bold text-orange-300">${money(r.purchases)}</td></tr></tfoot>` : ''}</table></div>
+      ${r.purMat.length ? `<tfoot><tr><td colspan="3" class="font-bold">الإجمالي (يُطرح في صافي النقدية)</td><td class="num font-bold text-orange-300">${money(r.purchases)}</td></tr></tfoot>` : ''}</table></div>
     </div>
     ${days.length > 1 ? `<div class="card p-4 mb-3"><h3 class="font-bold mb-3 text-sm"><i class="fa-solid fa-calendar-days text-emerald-400"></i> المبيعات اليومية</h3>${bars(days, 'bg-emerald-500')}</div>` : ''}
     ${Rep.stockAlert()}`;
@@ -1855,7 +1863,7 @@ const Rep = {
   },
   exportProducts() {
     const r = reportData();
-    const rows = [['الصنف', 'الكمية', 'المبيعات']].concat(Object.entries(r.prod).sort((a, b) => b[1].total - a[1].total).map(([n, v]) => [n, v.qty, round(v.total)]));
+    const rows = [['الصنف', 'الكمية', 'المبيعات', 'بعد الخصم', 'التكلفة', 'الربح']].concat(Object.entries(r.prod).sort((a, b) => b[1].total - a[1].total).map(([n, v]) => [n, v.qty, round(v.total), round(v.net), round(v.cost), round(v.net - v.cost)]));
     downloadFile(`مبيعات_الأصناف_${Range.from}_${Range.to}.csv`, toCSV(rows), 'text/csv;charset=utf-8');
   },
   shifts() {
@@ -2484,10 +2492,11 @@ th.n,td.n{text-align:center}tfoot td{background:#e2e8f0!important;font-weight:80
     const days = Object.entries(r.byDay).sort(), hours = r.hour.map((v, h) => [h, v]).filter(x => x[1] > 0);
     return { title: 'تقرير المبيعات والإحصائيات', file: 'تقرير_المبيعات', sub: 'الفترة: ' + this.period(),
       kpis: [['إجمالي المبيعات', money(r.sales), 'good'], ['عدد الفواتير', r.count], ['متوسط الفاتورة', money(r.avg)], ['المصروفات', money(r.expenses), 'bad'], ['المشتريات', money(r.purchases), 'bad'],
-        ['صافي الربح (المبيعات − المشتريات − المصروفات)', money(net), net >= 0 ? 'good' : 'bad'], ['نقدي', money(r.cash)], ['بطاقة', money(r.card)], ['الخصومات', money(r.discount), 'warn'],
+        ['ربح الأصناف (المبيعات الصافية − تكلفة الأصناف)', money(r.profit), r.profit >= 0 ? 'good' : 'bad'], ['صافي الربح (ربح الأصناف − المصروفات)', money(r.netProfit), r.netProfit >= 0 ? 'good' : 'bad'],
+        ['صافي النقدية (المبيعات − المشتريات − المصروفات)', money(net), net >= 0 ? 'good' : 'bad'], ['نقدي', money(r.cash)], ['بطاقة', money(r.card)], ['الخصومات', money(r.discount), 'warn'],
         ['الخدمة', money(r.service)], ['الضريبة', money(r.tax)], ['التوصيل', money(r.delivery)], ...(r.deliveryDriver ? [['منها لعامل التوصيل (لا تدخل في الربح)', money(r.deliveryDriver)]] : []), ...(r.deliveryRest ? [['منها للمطعم (ضمن الربح)', money(r.deliveryRest)]] : []), ['ملغاة / مرتجعة', r.voids.length + ' — ' + money(r.voids.reduce((s, o) => s + o.total, 0)), 'bad']],
       sections: [
-        { title: 'الأصناف الأكثر مبيعاً', cols: ['#', 'الصنف', 'الكمية', 'المبيعات', 'النسبة'], num: [0, 2, 3, 4], rows: top.map(([n, v], i) => [i + 1, n, v.qty, m(v.total), pct(v.total, r.sales)]), thermal: [1, 2, 3], foot: ['', 'الإجمالي', top.reduce((a, [, v]) => a + v.qty, 0), m(r.sales), ''] },
+        { title: 'الأصناف الأكثر مبيعاً', cols: ['#', 'الصنف', 'الكمية', 'المبيعات', 'التكلفة', 'الربح', 'النسبة'], num: [0, 2, 3, 4, 5, 6], rows: top.map(([n, v], i) => [i + 1, n, v.qty, m(v.total), m(v.cost), m(v.net - v.cost), pct(v.total, r.sales)]), thermal: [1, 2, 3, 5], foot: ['', 'الإجمالي', top.reduce((a, [, v]) => a + v.qty, 0), m(top.reduce((a, [, v]) => a + v.total, 0)), m(r.cost), m(top.reduce((a, [, v]) => a + v.net - v.cost, 0)), ''] },
         { title: 'المبيعات حسب القسم', cols: ['القسم', 'المبيعات', 'النسبة'], num: [1, 2], rows: pair(r.cat), thermal: [0, 1] },
         { title: 'المبيعات حسب نوع الطلب', cols: ['النوع', 'المبيعات', 'النسبة'], num: [1, 2], rows: pair(r.byType), thermal: [0, 1] },
         { title: 'المبيعات حسب الكاشير', cols: ['الكاشير', 'المبيعات', 'النسبة'], num: [1, 2], rows: pair(r.byUser), thermal: [0, 1] },
@@ -2882,9 +2891,9 @@ const Printer = {
       ${row('عدد الفواتير:', r.count)}${row('إجمالي المبيعات:', money(r.sales))}${row('متوسط الفاتورة:', money(r.avg))}${row('الخصومات:', money(r.discount))}
       ${r.service ? row('الخدمة:', money(r.service)) : ''}${r.tax ? row('الضريبة:', money(r.tax)) : ''}${r.delivery ? row('التوصيل:', money(r.delivery)) : ''}${r.deliveryDriver ? row('منها لعامل التوصيل:', money(r.deliveryDriver)) : ''}
       <div class="hr"></div>${row('نقدي:', money(r.cash))}${row('بطاقة:', money(r.card))}${row('المصروفات:', money(r.expenses))}${row('المشتريات:', money(r.purchases))}${row('الملغاة:', r.voids.length)}
-      ${row('صافي الربح (المبيعات − المشتريات − المصروفات):', money(r.net))}
+      ${row('ربح الأصناف:', money(r.profit))}${row('صافي الربح (− المصروفات):', money(r.netProfit))}${row('صافي النقدية (− المشتريات − المصروفات):', money(r.net))}
       <div class="hr2"></div><div class="b">الأصناف المباعة</div>
-      <table><thead><tr><th>الصنف</th><th class="c">كمية</th><th class="l">المبلغ</th></tr></thead><tbody>${top.map(([n, v]) => `<tr><td>${esc(n)}</td><td class="c">${v.qty}</td><td class="l">${money(v.total, false)}</td></tr>`).join('')}</tbody></table>
+      <table><thead><tr><th>الصنف</th><th class="c">كمية</th><th class="l">المبلغ</th><th class="l">الربح</th></tr></thead><tbody>${top.map(([n, v]) => `<tr><td>${esc(n)}</td><td class="c">${v.qty}</td><td class="l">${money(v.total, false)}</td><td class="l">${money(v.net - v.cost, false)}</td></tr>`).join('')}</tbody></table>
       <div class="hr"></div><div class="c sm">طُبع في ${fmtDT(Date.now())} بواسطة ${esc(App.user.name)}</div>`;
     this.print(body);
   },
