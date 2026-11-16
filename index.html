@@ -574,7 +574,7 @@ const App = {
     $('#sidebar').innerHTML = NAV.filter(n => (!n.admin || this.isAdmin()) && (!n.perm || Perm.can(n.perm)) && !(n.full && isQuick())).map(n => `
       <button class="nav-btn ${this.view === n.id ? 'active' : ''}" onclick="App.go('${n.id}')"><i class="fa-solid ${n.icon} text-lg"></i>${n.name}</button>`).join('') +
       `<div class="flex-1"></div>
-       <button class="nav-btn" onclick="Shift.closeDialog()"><i class="fa-solid fa-cash-register text-lg text-amber-400"></i>إغلاق الوردية</button>
+       <button class="nav-btn" id="navShiftBtn" onclick="Shift.current() ? Shift.closeDialog() : Shift.openDialog()">${this.shiftBtnHtml()}</button>
        <div class="text-center text-[9px] text-slate-600 py-1">v${APP_VERSION}</div>`;
   },
   applyMode() {
@@ -617,14 +617,21 @@ const App = {
   refresh() {
     if (this.view === 'pos') POS.render();
     else if (VIEWS[this.view]) VIEWS[this.view]($(`[data-view="${this.view}"]`));
-    this.updateOpenBadge();
+    this.updateOpenBadge(); this.updateShiftBadge();
   },
   updateOpenBadge() {
     const n = DB.open.length, b = $('#openBadge');
     b.textContent = n; b.classList.toggle('hidden', !n);
   },
+  // زر الوردية أسفل القائمة: «فتح وردية» عند عدم وجود وردية مفتوحة، و«إغلاق الوردية» عند وجودها
+  shiftBtnHtml() {
+    return Shift.current()
+      ? '<i class="fa-solid fa-cash-register text-lg text-amber-400"></i>إغلاق الوردية'
+      : '<i class="fa-solid fa-door-open text-lg text-emerald-400"></i>فتح وردية';
+  },
   updateShiftBadge() {
     const sh = Shift.current();
+    const nb = $('#navShiftBtn'); if (nb) nb.innerHTML = this.shiftBtnHtml();
     $('#hdrShift').innerHTML = sh
       ? `<span class="text-emerald-400"><i class="fa-solid fa-circle text-[7px] pulse-dot"></i> وردية مفتوحة منذ ${fmtTime(sh.openAt)}</span>`
       : `<span class="text-rose-400"><i class="fa-solid fa-circle text-[7px]"></i> لا توجد وردية مفتوحة</span>`;
