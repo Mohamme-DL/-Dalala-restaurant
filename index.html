@@ -246,7 +246,7 @@ function defaultData() {
       name: 'مطعم وكافيه دلالة', address: 'طرابلس - ليبيا', phone: '09xxxxxxxx', logo: '',
       currency: 'د.ل', decimals: 2, taxRate: 0, serviceRate: 0, serviceDineOnly: true, deliveryFee: 5, deliveryFeeTo: 'driver',
       footer: 'شكراً لزيارتكم .. نتمنى رؤيتكم مجدداً', paper: 80, autoPrint: true, kitchenPrint: true,
-      kitchenCopies: 1, receiptCopies: 1, silentPrint: true, printerName: '', a4Printer: '', kitchenPrinter: '', kitchenPrinter2: '', kitchenPrinter3: '', kitchenPrinter4: '', kitchenLabel1: '', kitchenLabel2: '', kitchenLabel3: '', kitchenLabel4: '',
+      kitchenCopies: 1, receiptCopies: 1, silentPrint: true, printerName: '', a4Printer: '', kitchenPrinter: '', kitchenAsk: false, kitchenPrinter2: '', kitchenPrinter3: '', kitchenPrinter4: '', kitchenLabel1: '', kitchenLabel2: '', kitchenLabel3: '', kitchenLabel4: '',
       mode: 'restaurant', modeChosen: false, quickPopup: false,
       requireShift: true, nextInvoice: 1001, dailyNo: { day: '', n: 0 }, showImages: true, sound: true,
       lowStockAlert: 5, autoBackup: true
@@ -2242,7 +2242,8 @@ VIEWS.settings = (el) => {
           ${[1, 2, 3, 4].map(n => `<div class="mt-2" style="display:grid;grid-template-columns:64px 1fr 1fr;gap:8px;align-items:center"><span class="text-xs text-slate-400">طابعة ${n}</span>
             <input class="inp py-1.5 text-xs" placeholder="اسم القسم (اختياري) مثل: المشويات" value="${esc(s['kitchenLabel' + n] || '')}" onchange="Cfg.v('kitchenLabel${n}',this.value.trim())">
             <select class="inp py-1.5 text-xs" id="prnK${n}" onchange="Cfg.v('${n === 1 ? 'kitchenPrinter' : 'kitchenPrinter' + n}',this.value)"><option value="">${n === 1 ? 'نفس طابعة الفواتير' : '— غير مستخدمة —'}</option></select></div>`).join('')}
-          <p class="text-[11px] text-slate-500 mt-1">اسم القسم يُطبع أعلى التذكرة ليعرف كل قسم نسخته. عند اختيار أكثر من طابعة تُطبع تذكرة المطبخ مباشرة على كل الطابعات.</p></div>` :
+          <p class="text-[11px] text-slate-500 mt-1">اسم القسم يُطبع أعلى التذكرة ليعرف كل قسم نسخته. عند اختيار أكثر من طابعة تُطبع تذكرة المطبخ مباشرة على كل الطابعات.</p>
+          <div class="mt-2">${sw('kitchenAsk', 'اختيار طابعة المطبخ عند كل طلب', 'عند الحفظ أو البيع تظهر نافذة تختار منها القسم/الطابعة التي تذهب لها التذكرة بدل الطباعة على الكل (تعمل عند وجود أكثر من طابعة مطبخ)')}</div></div>` :
       `<p class="text-[11px] text-slate-500 mt-2">للطباعة المباشرة بدون نافذة وتحديد طابعة للمطبخ استخدم نسخة البرنامج (Dalala.exe).</p>`}
       <div class="flex gap-2 mt-4"><button class="btn-ghost text-xs" onclick="Printer.test()"><i class="fa-solid fa-print"></i> طباعة تجريبية</button></div>
     </div>
@@ -2795,7 +2796,7 @@ const Printer = {
     this.print(body, { copies: o.pre ? 1 : s.receiptCopies, paper: s.paper === 58 ? 58 : 80 });
   },
 
-  kitchen(t) {
+  kitchen(t, opts = {}) {
     if (!t) return;
     const body = `<div class="c b">— تذكرة المطبخ —</div>
       ${t.dailyNo ? `<div class="ono"><div class="lbl">رقم الطلب</div><div class="num">${t.dailyNo}</div><div class="sub">${esc(t.label)}</div></div>` : `<div class="box"><div class="xl b">${esc(t.label)}</div></div>`}
@@ -2809,7 +2810,28 @@ const Printer = {
     }
     // أكثر من طابعة مطبخ: نفس التذكرة تُطبع مباشرة على كل طابعة (لا يمكن اختيار طابعة محددة من نافذة الطباعة)
     if (!PRN()) return this.print(body, { kitchen: true, copies: s.kitchenCopies });
+    const go = sel => sel.forEach(k => this.print((k.label ? `<div class="c b">${esc(k.label)}</div>` : '') + body, { kitchen: true, copies: s.kitchenCopies, device: k.printer, forceDirect: true }));
+    if (opts.only) return go(list.filter(k => opts.only.includes(k.n)));
+    // خيار «اختيار طابعة المطبخ عند كل طلب»: نافذة يختار منها الكاشير الأقسام (بعد انتهاء عملية البيع/الحفظ مباشرة)
+    if (s.kitchenAsk && !opts.all) return setTimeout(() => this.kitchenPick(t, list, go), 250);
     list.forEach(k => this.print((k.label ? `<div class="c b">${esc(k.label)}</div>` : '') + body, { kitchen: true, copies: s.kitchenCopies, device: k.printer, forceDirect: true }));
+  },
+  kitchenPick(t, list, go) {
+    const name = k => k.label || ('طابعة ' + k.n);
+    const w = Modal.open(`<div class="text-center mb-3"><div class="text-xs text-slate-400">تذكرة المطبخ</div><div class="text-2xl font-black text-white">${t.dailyNo ? '#' + t.dailyNo : ''} ${esc(t.label || '')}</div>
+        <div class="text-xs text-slate-400 mt-1">${t.items.map(i => `${i.qty}× ${esc(i.name)}`).join('، ')}</div></div>
+      <p class="text-sm text-slate-300 mb-2 font-bold">اختر أين تُطبع التذكرة:</p>
+      <div class="grid grid-cols-2 gap-2">${list.map(k => `<button type="button" data-k="${k.n}" class="kp card p-4 text-center font-bold text-base transition" style="min-height:64px"><i class="fa-solid fa-print"></i> ${esc(name(k))}</button>`).join('')}</div>
+      <div class="flex gap-2 mt-4"><button class="btn-primary flex-1 py-3" data-go disabled><i class="fa-solid fa-print"></i> طباعة</button>
+        <button class="btn-ghost py-3" data-all><i class="fa-solid fa-layer-group"></i> الكل</button>
+        <button class="btn-ghost py-3" data-skip>بدون طباعة</button></div>`, { title: 'طباعة تذكرة المطبخ', icon: 'fa-kitchen-set', sticky: true });
+    const chosen = new Set();
+    const paint = () => { $$('.kp', w).forEach(b => { const on = chosen.has(+b.dataset.k); b.style.borderColor = on ? '#0ea5e9' : ''; b.style.borderWidth = on ? '2px' : ''; b.style.background = on ? 'rgba(14,165,233,.35)' : ''; const i = b.querySelector('i'); if (i) i.className = 'fa-solid ' + (on ? 'fa-circle-check text-sky-300' : 'fa-print'); }); $('[data-go]', w).disabled = !chosen.size; };
+    $$('.kp', w).forEach(b => b.onclick = () => { const n = +b.dataset.k; chosen.has(n) ? chosen.delete(n) : chosen.add(n); paint(); });
+    const finish = sel => { Modal.close(); t.printedTo = sel.map(k => k.n); Store.save(); if (sel.length) go(sel); };
+    $('[data-go]', w).onclick = () => finish(list.filter(k => chosen.has(k.n)));
+    $('[data-all]', w).onclick = () => finish(list);
+    $('[data-skip]', w).onclick = () => finish([]);
   },
   // طابعات المطبخ (حتى 4): الأولى «نفس طابعة الفواتير» إن تُركت فارغة، والباقي اختيارية
   kitchenList() {

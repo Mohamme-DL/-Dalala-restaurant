@@ -168,7 +168,7 @@ const INC_FIELDS = { products: ['stock'] }; // counters sent as +/- so simultane
       for (const t of DB.tickets) {
         if (t.src !== 'waiter' || t.printed || this.busy.has(t.id)) continue;
         this.busy.add(t.id); t.printed = true; dirty = true;
-        if (now - (t.at || now) < 30 * 60000 && S().kitchenPrint !== false) { try { Printer.kitchen(t); } catch (e) { /* toast shown by printer */ } }
+        if (now - (t.at || now) < 30 * 60000 && S().kitchenPrint !== false) { try { Printer.kitchen(t, { all: true }); } catch (e) { /* toast shown by printer */ } }
       }
       for (const o of DB.open) {
         if (o.billReq && o.billReq > (o.billPrinted || 0)) {
