@@ -244,7 +244,7 @@ function defaultData() {
     materials: [], purchases: [],
     settings: {
       name: 'مطعم وكافيه دلالة', address: 'طرابلس - ليبيا', phone: '09xxxxxxxx', logo: '',
-      currency: 'د.ل', decimals: 2, taxRate: 0, serviceRate: 0, serviceDineOnly: true, deliveryFee: 5,
+      currency: 'د.ل', decimals: 2, taxRate: 0, serviceRate: 0, serviceDineOnly: true, deliveryFee: 5, deliveryFeeTo: 'driver',
       footer: 'شكراً لزيارتكم .. نتمنى رؤيتكم مجدداً', paper: 80, autoPrint: true, kitchenPrint: true,
       kitchenCopies: 1, receiptCopies: 1, silentPrint: true, printerName: '', kitchenPrinter: '',
       mode: 'restaurant', modeChosen: false, quickPopup: false,
@@ -711,10 +711,12 @@ const Shift = {
     const sum = (arr, f) => arr.reduce((a, o) => a + f(o), 0);
     const cash = sum(paid, o => o.pay.cash), card = sum(paid, o => o.pay.card);
     const exp = sum(DB.expenses.filter(e => e.shiftId === sh.id), e => e.amount);
+    // رسوم التوصيل المقبوضة نقداً لعامل التوصيل لا تبقى في الصندوق
+    const drv = sum(paid, o => deliveryToDriver(o) && o.delivery ? Math.min(o.delivery, (o.pay && o.pay.cash) || 0) : 0);
     return {
       count: paid.length, voids: orders.filter(o => o.status !== 'paid').length,
-      sales: sum(paid, o => o.total), discount: sum(paid, o => o.discountAmt), cash, card, exp,
-      expected: round(sh.openCash + cash - exp)
+      sales: sum(paid, o => o.total), discount: sum(paid, o => o.discountAmt), cash, card, exp, drv,
+      expected: round(sh.openCash + cash - exp - drv)
     };
   },
   closeDialog() {
@@ -729,7 +731,7 @@ const Shift = {
         ${row('عدد الفواتير', s.count)}${row('الفواتير الملغاة', s.voids, 'text-rose-400')}
         ${row('إجمالي المبيعات', money(s.sales), 'text-emerald-400')}${row('الخصومات', money(s.discount))}
         ${row('مبيعات نقدية', money(s.cash))}${row('مبيعات بطاقة', money(s.card))}
-        ${row('رصيد افتتاحي', money(sh.openCash))}${row('المصروفات', money(s.exp), 'text-rose-400')}
+        ${row('رصيد افتتاحي', money(sh.openCash))}${row('المصروفات', money(s.exp), 'text-rose-400')}${s.drv ? row('رسوم توصيل لعامل التوصيل (نقداً)', money(s.drv), 'text-rose-400') : ''}
         ${row('النقد المتوقع في الدرج', money(s.expected), 'text-sky-300 text-base')}
       </div>
       <label class="lbl">النقد الفعلي في الدرج (الجرد)</label>
@@ -762,6 +764,8 @@ const Shift = {
 /* =====================================================================
    POS — نقطة البيع
    ===================================================================== */
+// رسوم التوصيل لمن؟ 'driver' = لعامل التوصيل (لا تدخل في ربح المطعم ولا في نقد الصندوق) | 'restaurant' = دخل للمطعم. تُحفظ مع كل فاتورة حتى لا يتغير الماضي عند تغيير الإعداد
+const deliveryToDriver = o => ((o && o.deliveryTo) || S().deliveryFeeTo || 'driver') === 'driver';
 const TYPES = { dine: { name: 'صالة', icon: 'fa-chair' }, take: { name: 'تيك أوي', icon: 'fa-bag-shopping' }, delivery: { name: 'توصيل', icon: 'fa-motorcycle' } };
 
 function calcOrder(o) {
@@ -1276,7 +1280,7 @@ const POS = {
       id: o.id, no: s.nextInvoice++, dailyNo: o.dailyNo, date: Date.now(), openedAt: o.createdAt, type: o.type, tableId: o.tableId,
       tableName: o.tableId ? tableName(o.tableId) : '', items: o.items.map(i => ({ pid: i.pid, name: i.name, price: i.price, cost: i.cost || 0, qty: i.qty, note: i.note })),
       discount: o.discount, customer: o.customer, note: o.note,
-      subtotal: c.subtotal, discountAmt: c.discountAmt, service: c.service, tax: c.tax, delivery: c.delivery, total: c.total,
+      subtotal: c.subtotal, discountAmt: c.discountAmt, service: c.service, tax: c.tax, delivery: c.delivery, deliveryTo: c.delivery ? (s.deliveryFeeTo || 'driver') : undefined, total: c.total,
       pay, tendered, change, method: pay.card && pay.cash ? 'split' : pay.card ? 'card' : 'cash',
       userId: by ? by.id : App.user.id, userName: by ? by.name : App.user.name, shiftId: sh ? sh.id : null, status: 'paid'
     };
@@ -1775,10 +1779,10 @@ function reportData() {
   const exps = DB.expenses.filter(e => e.date >= a && e.date <= b && !e.purchaseId && !(e.cat === 'مشتريات مطبخ' && String(e.desc || '').startsWith('شراء مواد خام')));
   const purs = DB.purchases.filter(x => x.date >= a && x.date <= b), purMat = {};
   purs.forEach(x => x.lines.forEach(l => { const k = l.name + '|' + l.unit, o = purMat[k] = purMat[k] || { name: l.name, unit: l.unit, qty: 0, total: 0 }; o.qty += l.qty; o.total += l.qty * l.price; }));
-  const sales = sum(paid, o => o.total), netSales = sum(paid, o => o.total - o.tax); // رسوم التوصيل يدفعها الزبون فهي دخل للمطعم ولا تُخصم من الأرباح
+  const sales = sum(paid, o => o.total), netSales = sum(paid, o => o.total - o.tax - (deliveryToDriver(o) ? o.delivery : 0)); // رسوم التوصيل تُحسب دخلاً للمطعم فقط إذا كان التوصيل تابعاً للمطعم
   return {
     all, paid, sales, count: paid.length, avg: paid.length ? sales / paid.length : 0,
-    discount: sum(paid, o => o.discountAmt), service: sum(paid, o => o.service), tax: sum(paid, o => o.tax), delivery: sum(paid, o => o.delivery),
+    discount: sum(paid, o => o.discountAmt), service: sum(paid, o => o.service), tax: sum(paid, o => o.tax), delivery: sum(paid, o => o.delivery), deliveryDriver: sum(paid, o => deliveryToDriver(o) ? o.delivery : 0), deliveryRest: sum(paid, o => deliveryToDriver(o) ? 0 : o.delivery),
     cash: sum(paid, o => o.pay.cash), card: sum(paid, o => o.pay.card), voids: all.filter(o => o.status !== 'paid'),
     expenses: sum(exps, e => e.amount), expCats: exps.reduce((m, e) => (m[e.cat || 'أخرى'] = (m[e.cat || 'أخرى'] || 0) + e.amount, m), {}),
     purchases: sum(purs, x => x.total), purCount: purs.length, purMat: Object.values(purMat).sort((x, y) => y.total - x.total),
@@ -1802,7 +1806,7 @@ VIEWS.reports = (el) => {
       ${kpi('عدد الفواتير', r.count, 'fa-receipt', 'text-sky-300', 'متوسط الفاتورة ' + money(r.avg))}
       ${kpi('المصروفات', money(r.expenses), 'fa-wallet', 'text-rose-400')}
       ${kpi('المشتريات', money(r.purchases), 'fa-cart-flatbed', 'text-orange-300', r.purCount + ' فاتورة شراء')}
-      ${kpi('صافي الربح', money(r.net), 'fa-chart-line', r.net >= 0 ? 'text-emerald-300' : 'text-rose-400', 'المبيعات − المشتريات − المصروفات')}
+      ${kpi('صافي الربح', money(r.net), 'fa-chart-line', r.net >= 0 ? 'text-emerald-300' : 'text-rose-400', 'المبيعات − المشتريات − المصروفات' + (r.deliveryDriver ? ' − توصيل العامل' : ''))}
       ${kpi('نقدي', money(r.cash), 'fa-money-bill-wave', 'text-teal-300')}
       ${kpi('بطاقة', money(r.card), 'fa-credit-card', 'text-indigo-300')}
       ${kpi('الخصومات', money(r.discount), 'fa-tag', 'text-amber-300')}
@@ -2219,6 +2223,7 @@ VIEWS.settings = (el) => {
         <div><label class="lbl">الخانات العشرية</label><select class="inp" onchange="Cfg.v('decimals',+this.value)">${[0, 1, 2, 3].map(d => `<option ${s.decimals === d ? 'selected' : ''}>${d}</option>`).join('')}</select></div>
         ${inp('nextInvoice', 'رقم الفاتورة التالي', 'number')}
         ${inp('serviceRate', 'نسبة الخدمة %', 'number')}${inp('taxRate', 'نسبة الضريبة %', 'number')}${inp('deliveryFee', 'رسوم التوصيل الافتراضية', 'number')}</div>
+      <div class="mt-3"><label class="lbl">رسوم التوصيل لمن؟</label><select class="inp" onchange="Cfg.v('deliveryFeeTo',this.value)"><option value="driver" ${(s.deliveryFeeTo || 'driver') === 'driver' ? 'selected' : ''}>لعامل التوصيل — لا تُحسب في ربح المطعم ولا في نقد الصندوق</option><option value="restaurant" ${s.deliveryFeeTo === 'restaurant' ? 'selected' : ''}>للمطعم (عامل توصيل تابع للمطعم) — تُحسب دخلاً ضمن الربح</option></select><span class="block text-[11px] text-slate-500 mt-1">يُطبَّق على الفواتير الجديدة فقط؛ الفواتير السابقة تبقى كما سُجلت.</span></div>
       ${sw('serviceDineOnly', 'الخدمة على طلبات الصالة فقط')}
       ${sw('requireShift', 'إلزام فتح وردية قبل البيع', 'لتتبع النقد في الدرج ومطابقته عند الإغلاق')}
       ${inp('lowStockAlert', 'تنبيه انخفاض المخزون عند', 'number')}
@@ -2455,7 +2460,7 @@ th.n,td.n{text-align:center}tfoot td{background:#e2e8f0!important;font-weight:80
     return { title: 'تقرير المبيعات والإحصائيات', file: 'تقرير_المبيعات', sub: 'الفترة: ' + this.period(),
       kpis: [['إجمالي المبيعات', money(r.sales), 'good'], ['عدد الفواتير', r.count], ['متوسط الفاتورة', money(r.avg)], ['المصروفات', money(r.expenses), 'bad'], ['المشتريات', money(r.purchases), 'bad'],
         ['صافي الربح (المبيعات − المشتريات − المصروفات)', money(net), net >= 0 ? 'good' : 'bad'], ['نقدي', money(r.cash)], ['بطاقة', money(r.card)], ['الخصومات', money(r.discount), 'warn'],
-        ['الخدمة', money(r.service)], ['الضريبة', money(r.tax)], ['التوصيل', money(r.delivery)], ['ملغاة / مرتجعة', r.voids.length + ' — ' + money(r.voids.reduce((s, o) => s + o.total, 0)), 'bad']],
+        ['الخدمة', money(r.service)], ['الضريبة', money(r.tax)], ['التوصيل', money(r.delivery)], ...(r.deliveryDriver ? [['منها لعامل التوصيل (لا تدخل في الربح)', money(r.deliveryDriver)]] : []), ...(r.deliveryRest ? [['منها للمطعم (ضمن الربح)', money(r.deliveryRest)]] : []), ['ملغاة / مرتجعة', r.voids.length + ' — ' + money(r.voids.reduce((s, o) => s + o.total, 0)), 'bad']],
       sections: [
         { title: 'الأصناف الأكثر مبيعاً', cols: ['#', 'الصنف', 'الكمية', 'المبيعات', 'النسبة'], num: [0, 2, 3, 4], rows: top.map(([n, v], i) => [i + 1, n, v.qty, m(v.total), pct(v.total, r.sales)]), thermal: [1, 2, 3], foot: ['', 'الإجمالي', top.reduce((a, [, v]) => a + v.qty, 0), m(r.sales), ''] },
         { title: 'المبيعات حسب القسم', cols: ['القسم', 'المبيعات', 'النسبة'], num: [1, 2], rows: pair(r.cat), thermal: [0, 1] },
@@ -2790,7 +2795,7 @@ const Printer = {
     const body = `${this.header()}<div class="hr"></div><div class="c b big">تقرير إغلاق وردية (Z)</div><div class="c">وردية رقم ${sh.no}</div><div class="hr"></div>
       ${r('الكاشير:', esc(sh.userName))}${r('الفتح:', fmtDT(sh.openAt))}${r('الإغلاق:', sh.closeAt ? fmtDT(sh.closeAt) : 'مفتوحة')}
       <div class="hr"></div>${r('عدد الفواتير:', s.count)}${r('الملغاة:', s.voids)}${r('إجمالي المبيعات:', money(s.sales))}${r('الخصومات:', money(s.discount))}
-      <div class="hr"></div>${r('مبيعات نقدية:', money(s.cash))}${r('مبيعات بطاقة:', money(s.card))}${r('رصيد افتتاحي:', money(sh.openCash))}${r('المصروفات:', money(s.exp))}
+      <div class="hr"></div>${r('مبيعات نقدية:', money(s.cash))}${r('مبيعات بطاقة:', money(s.card))}${r('رصيد افتتاحي:', money(sh.openCash))}${r('المصروفات:', money(s.exp))}${s.drv ? r('رسوم توصيل لعامل التوصيل:', money(s.drv)) : ''}
       <div class="hr2"></div>${r('النقد المتوقع:', money(sh.expected != null ? sh.expected : s.expected))}
       ${sh.closeCash != null ? r('النقد الفعلي:', money(sh.closeCash)) + r('الفرق:', money(sh.diff) + (sh.diff < 0 ? ' عجز' : sh.diff > 0 ? ' زيادة' : '')) : ''}
       ${sh.note ? `<div class="hr"></div><div>ملاحظات: ${esc(sh.note)}</div>` : ''}
@@ -2804,7 +2809,7 @@ const Printer = {
     const top = Object.entries(r.prod).sort((a, b) => b[1].total - a[1].total);
     const body = `${this.header()}<div class="hr"></div><div class="c b big">تقرير المبيعات</div><div class="c">من ${Range.from} إلى ${Range.to}</div><div class="hr"></div>
       ${row('عدد الفواتير:', r.count)}${row('إجمالي المبيعات:', money(r.sales))}${row('متوسط الفاتورة:', money(r.avg))}${row('الخصومات:', money(r.discount))}
-      ${r.service ? row('الخدمة:', money(r.service)) : ''}${r.tax ? row('الضريبة:', money(r.tax)) : ''}${r.delivery ? row('التوصيل:', money(r.delivery)) : ''}
+      ${r.service ? row('الخدمة:', money(r.service)) : ''}${r.tax ? row('الضريبة:', money(r.tax)) : ''}${r.delivery ? row('التوصيل:', money(r.delivery)) : ''}${r.deliveryDriver ? row('منها لعامل التوصيل:', money(r.deliveryDriver)) : ''}
       <div class="hr"></div>${row('نقدي:', money(r.cash))}${row('بطاقة:', money(r.card))}${row('المصروفات:', money(r.expenses))}${row('المشتريات:', money(r.purchases))}${row('الملغاة:', r.voids.length)}
       ${row('صافي الربح (المبيعات − المشتريات − المصروفات):', money(r.net))}
       <div class="hr2"></div><div class="b">الأصناف المباعة</div>
