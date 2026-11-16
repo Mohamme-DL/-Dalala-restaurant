@@ -248,7 +248,7 @@ function defaultData() {
       footer: 'شكراً لزيارتكم .. نتمنى رؤيتكم مجدداً', paper: 80, autoPrint: true, kitchenPrint: true,
       kitchenCopies: 1, receiptCopies: 1, silentPrint: true, printerName: '', a4Printer: '', kitchenPrinter: '', kitchenAsk: false, kitchenPrinter2: '', kitchenPrinter3: '', kitchenPrinter4: '', kitchenLabel1: '', kitchenLabel2: '', kitchenLabel3: '', kitchenLabel4: '',
       mode: 'restaurant', modeChosen: false, quickPopup: false,
-      requireShift: true, nextInvoice: 1001, dailyNo: { day: '', n: 0 }, showImages: true, sound: true,
+      requireShift: true, nextInvoice: 1, dailyNo: { day: '', n: 0 }, showImages: true, sound: true,
       lowStockAlert: 5, autoBackup: true
     },
     users: [
@@ -783,6 +783,14 @@ function calcOrder(o) {
   const qty = o.items.reduce((a, i) => a + i.qty, 0);
   return { subtotal, discountAmt, service, tax, delivery, total, qty };
 }
+// رقم الفاتورة التالي: يبدأ من «رقم الفاتورة التالي» في الإعدادات (يمكن إرجاعه إلى 1)، ويتخطى أي رقم مستخدم من قبل (لا تتكرر الأرقام أبداً)
+function nextInvNo() {
+  const s = S();
+  let n = Math.max(1, parseInt(s.nextInvoice) || 1);
+  const used = new Set(DB.orders.map(o => +o.no));
+  while (used.has(n)) n++;
+  s.nextInvoice = n + 1; return n;
+}
 function nextDailyNo() {
   const s = S(), k = dayKey(Date.now());
   if (s.dailyNo.day !== k) s.dailyNo = { day: k, n: 0 };
@@ -1218,7 +1226,7 @@ const POS = {
     if (!items.length || (isQuick() && !S().kitchenPrint)) return;
     const t = { id: uid(), orderId: o.id, label: orderLabel(o), type: o.type, dailyNo: o.dailyNo, items, note: o.note, at: Date.now(), done: false, user: App.user.name };
     DB.tickets.unshift(t); if (DB.tickets.length > 500) DB.tickets.length = 500;
-    if (S().kitchenPrint) Printer.kitchen(t);
+    if (S().kitchenPrint && Printer.kitchenList().length) Printer.kitchen(t);
   },
   printPreBill() {
     if (!this.cur.items.length) return toast('الطلب فارغ', 'error');
@@ -1278,7 +1286,7 @@ const POS = {
     if (!o.id) { o.id = uid(); o.createdAt = Date.now(); o.dailyNo = nextDailyNo(); o.userName = App.user.name; }
     this.sendKitchen(o); // anything not yet sent
     const inv = {
-      id: o.id, no: s.nextInvoice++, dailyNo: o.dailyNo, date: Date.now(), openedAt: o.createdAt, type: o.type, tableId: o.tableId,
+      id: o.id, no: nextInvNo(), dailyNo: o.dailyNo, date: Date.now(), openedAt: o.createdAt, type: o.type, tableId: o.tableId,
       tableName: o.tableId ? tableName(o.tableId) : '', items: o.items.map(i => ({ pid: i.pid, name: i.name, price: i.price, cost: i.cost || 0, qty: i.qty, note: i.note })),
       discount: o.discount, customer: o.customer, note: o.note,
       subtotal: c.subtotal, discountAmt: c.discountAmt, service: c.service, tax: c.tax, delivery: c.delivery, deliveryTo: o.type === 'delivery' ? (c.delivery ? 'restaurant' : 'driver') : undefined, total: c.total,
@@ -1293,7 +1301,7 @@ const POS = {
     inv.mats = Inventory.consume(inv.items);
     logAct('فاتورة', '#' + inv.no + ' — ' + money(inv.total));
     Store.saveNow();
-    if (s.autoPrint) Printer.receipt(inv);
+    if (s.autoPrint && s.printerName !== '-') Printer.receipt(inv);
     if (by) { beep(1320, .08); toast(`دفع من النادل ${by.name} — ${orderLabel(o)} — ${money(inv.total)}`, 'success'); App.refresh(); return inv; }
     this.cur = this.blank(o.type); this.tendered = ''; this.sel = null; this.toggleCart(false); this.render();
     beep(1320, .08);
@@ -2235,13 +2243,13 @@ VIEWS.settings = (el) => {
       ${sw('autoPrint', 'طباعة الفاتورة تلقائياً بعد الدفع')}
       ${sw('kitchenPrint', isQuick() ? 'طباعة تذكرة تحضير (للباريستا) مع كل بيع' : 'طباعة تذكرة المطبخ عند الحفظ/الإرسال')}
       ${PRN() ? `${sw('silentPrint', 'طباعة مباشرة بدون نافذة (صامتة)', 'تُطبع مباشرة بلا أي نافذة على الطابعة المحددة أدناه (أو طابعة ويندوز الافتراضية إن لم تُحدَّد)')}
-        <div class="grid sm:grid-cols-2 gap-3 mt-3"><div><label class="lbl">طابعة الفواتير</label><select class="inp" id="prnR" onchange="Cfg.v('printerName',this.value)"><option value="">الطابعة الافتراضية</option></select></div>
-        <div><label class="lbl">طابعة ورق A4 (التقارير والمصروفات)</label><select class="inp" id="prnA4" onchange="Cfg.v('a4Printer',this.value)"><option value="">نفس طابعة الفواتير / نافذة الطباعة</option></select></div>
+        <div class="grid sm:grid-cols-2 gap-3 mt-3"><div><label class="lbl">طابعة الفواتير</label><select class="inp" id="prnR" onchange="Cfg.v('printerName',this.value)"><option value="">الطابعة الافتراضية</option><option value="-" ${s.printerName === '-' ? 'selected' : ''}>بلا — لا توجد طابعة</option></select></div>
+        <div><label class="lbl">طابعة ورق A4 (التقارير والمصروفات)</label><select class="inp" id="prnA4" onchange="Cfg.v('a4Printer',this.value)"><option value="">نفس طابعة الفواتير / نافذة الطباعة</option><option value="-" ${s.a4Printer === '-' ? 'selected' : ''}>بلا — لا توجد طابعة</option></select></div>
         </div>
         <div class="mt-3"><div class="lbl">طابعات المطبخ (حتى 4) — نفس تذكرة المطبخ تُطبع على كل طابعة مختارة</div>
           ${[1, 2, 3, 4].map(n => `<div class="mt-2" style="display:grid;grid-template-columns:64px 1fr 1fr;gap:8px;align-items:center"><span class="text-xs text-slate-400">طابعة ${n}</span>
             <input class="inp py-1.5 text-xs" placeholder="اسم القسم (اختياري) مثل: المشويات" value="${esc(s['kitchenLabel' + n] || '')}" onchange="Cfg.v('kitchenLabel${n}',this.value.trim())">
-            <select class="inp py-1.5 text-xs" id="prnK${n}" onchange="Cfg.v('${n === 1 ? 'kitchenPrinter' : 'kitchenPrinter' + n}',this.value)"><option value="">${n === 1 ? 'نفس طابعة الفواتير' : '— غير مستخدمة —'}</option></select></div>`).join('')}
+            <select class="inp py-1.5 text-xs" id="prnK${n}" onchange="Cfg.v('${n === 1 ? 'kitchenPrinter' : 'kitchenPrinter' + n}',this.value)"><option value="">${n === 1 ? 'نفس طابعة الفواتير' : '— غير مستخدمة —'}</option>${n === 1 ? `<option value="-" ${s.kitchenPrinter === '-' ? 'selected' : ''}>بلا — لا توجد طابعة</option>` : ''}</select></div>`).join('')}
           <p class="text-[11px] text-slate-500 mt-1">اسم القسم يُطبع أعلى التذكرة ليعرف كل قسم نسخته. عند اختيار أكثر من طابعة تُطبع تذكرة المطبخ مباشرة على كل الطابعات.</p>
           <div class="mt-2">${sw('kitchenAsk', 'اختيار طابعة المطبخ عند كل طلب', 'عند الحفظ أو البيع تظهر نافذة تختار منها القسم/الطابعة التي تذهب لها التذكرة بدل الطباعة على الكل (تعمل عند وجود أكثر من طابعة مطبخ)')}</div></div>` :
       `<p class="text-[11px] text-slate-500 mt-2">للطباعة المباشرة بدون نافذة وتحديد طابعة للمطبخ استخدم نسخة البرنامج (Dalala.exe).</p>`}
@@ -2351,6 +2359,7 @@ th.n,td.n{text-align:center}tfoot td{background:#e2e8f0!important;font-weight:80
   },
   printA4(spec) {
     const s = S();
+    if (s.a4Printer === '-' || (!s.a4Printer && s.printerName === '-')) return toast('لا توجد طابعة A4 (مضبوطة على «بلا» في الإعدادات) — استخدم التصدير Word/Excel', 'info');
     // طباعة مباشرة على طابعة A4 المحددة (إن كانت الطباعة المباشرة مفعّلة)، وإلا نافذة الطباعة
     if (PRN() && s.silentPrint && s.a4Printer) {
       PRN().print(this.a4Html(spec), { silent: true, deviceName: s.a4Printer, copies: 1, paper: 210 })
@@ -2639,7 +2648,7 @@ document.addEventListener('keydown', e => {
 document.addEventListener('wheel', e => { if (e.ctrlKey) { e.preventDefault(); Theme.step(e.deltaY < 0 ? 1 : -1); } }, { passive: false });
 if (window.matchMedia) { try { window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => { if (Theme.get().mode === 'auto') Theme.apply(); }); } catch (e) {} }
 const Cfg = {
-  v(k, val) { S()[k] = val; Store.save(); if (['name', 'logo'].includes(k)) App.brand(); if (['silentPrint', 'decimals', 'currency'].includes(k)) App.refresh(); if (k === 'deliveryFeeTo' && window.POS && POS.cur && POS.renderOrder) try { POS.renderOrder(); } catch (e) {} toast('تم الحفظ', 'success'); },
+  v(k, val) { S()[k] = val; if (k === 'nextInvoice') { S().nextInvoice = Math.max(1, parseInt(val) || 1); S().invoiceResetAt = Date.now(); } Store.save(); if (['name', 'logo'].includes(k)) App.brand(); if (['silentPrint', 'decimals', 'currency'].includes(k)) App.refresh(); if (k === 'deliveryFeeTo' && window.POS && POS.cur && POS.renderOrder) try { POS.renderOrder(); } catch (e) {} toast('تم الحفظ', 'success'); },
   async logo(inp) { const f = inp.files[0]; if (!f) return; S().logo = await resizeImage(await readFileAs(f, 'url'), 300); Store.save(); App.brand(); App.refresh(); },
   async addTables() {
     const w = Modal.open(`<div class="grid grid-cols-2 gap-3"><div><label class="lbl">عدد الطاولات</label><input class="inp num" type="number" value="4" data-n></div>
@@ -2734,6 +2743,9 @@ const Printer = {
   print(body, { kitchen = false, copies = 1, paper: pp, device = null, forceDirect = false } = {}) {
     const s = S(), paper = pp || (s.paper === 58 ? 58 : 80); // الإيصالات وتذاكر المطبخ وتقرير الوردية حرارية دائماً
     copies = Math.max(1, Math.min(5, parseInt(copies) || 1));
+    // طابعة مضبوطة على «بلا»: لا طباعة
+    const target = device !== null ? device : kitchen ? (s.kitchenPrinter || s.printerName || '') : paper === 210 ? (s.a4Printer || s.printerName || '') : (s.printerName || '');
+    if (target === '-') { toast(kitchen ? 'لا توجد طابعة مطبخ (مضبوطة على «بلا» في الإعدادات)' : paper === 210 ? 'لا توجد طابعة A4 (مضبوطة على «بلا» في الإعدادات)' : 'لا توجد طابعة فواتير (مضبوطة على «بلا» في الإعدادات)', 'info'); return; }
     const dialog = () => {
       const html = this.doc(Array.from({ length: copies }, () => `<div class="page">${body}</div>`).join(''), paper);
       // طابور: لا تبدأ الطباعة التالية قبل انتهاء السابقة (فاتورة الزبون ثم تذكرة المطبخ على نفس الطابعة)
@@ -2804,6 +2816,7 @@ const Printer = {
       <table><tbody>${t.items.map(i => `<tr><td class="b big" style="width:18%">${i.qty} ×</td><td class="b big">${esc(i.name)}${i.note ? `<div style="font-size:.75em">» ${esc(i.note)}</div>` : ''}</td></tr>`).join('')}</tbody></table>
       ${t.note ? `<div class="hr"></div><div class="b">ملاحظة: ${esc(t.note)}</div>` : ''}<div class="hr2"></div>`;
     const s = S(), list = this.kitchenList();
+    if (!list.length) return toast('لا توجد طابعة مطبخ (مضبوطة على «بلا» في الإعدادات)', 'info');
     if (list.length <= 1) {
       const one = list[0];
       return this.print((one && one.label ? `<div class="c b">${esc(one.label)}</div>` : '') + body, { kitchen: true, copies: s.kitchenCopies });
@@ -2840,7 +2853,7 @@ const Printer = {
       const prn = n === 1 ? (s.kitchenPrinter || '') : (s['kitchenPrinter' + n] || '');
       if (n > 1 && !prn) return;
       const dev = prn || s.printerName || '';
-      if (seen.has(dev)) return; seen.add(dev);
+      if (dev === '-' || seen.has(dev)) return; seen.add(dev);
       out.push({ n, printer: dev, label: String(s['kitchenLabel' + n] || '').trim() });
     });
     return out;

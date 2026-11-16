@@ -67,13 +67,24 @@ namespace DalalaRestaurant
             }
             if (col == "orders" && rec.ContainsKey("no") && rec["no"] != null && J.Str(rec["no"]).Length > 0 && !double.IsNaN(J.Num(rec["no"])) && (J.IsNum(rec["no"]) || J.Num(rec["no"]) != 0))
             {
-                var orders = J.L(J.Get(ctx.Data, "orders")) ?? new ArrayList();
-                var no = J.Num(rec["no"]);
-                Func<Dict, bool> other = r => r != null && J.Str(J.Get(r, "id")) != id;
-                if (orders.Cast<object>().Select(J.D).Any(r => other(r) && J.Num(J.Get(r, "no")) == no))
-                { rec["no"] = (long)(Math.Max(0, orders.Cast<object>().Select(J.D).Where(other).Select(r => J.Num(J.Get(r, "no"))).DefaultIfEmpty(0).Max()) + 1); no = J.Num(rec["no"]); }
+                // numbering restarts when the admin changes «next invoice number» (settings.invoiceResetAt): only invoices made since then count
                 var s = Settings(ctx);
-                if (s != null && !(J.Num(J.Get(s, "nextInvoice")) > no)) { s["nextInvoice"] = (long)no + 1; ctx.Touch("settings"); }
+                double since = s != null ? J.Num(J.Get(s, "invoiceResetAt")) : 0; if (double.IsNaN(since)) since = 0;
+                double rdate = J.Num(J.Get(rec, "date")); if (double.IsNaN(rdate)) rdate = 0;
+                if (rdate >= since)
+                {
+                    var orders = J.L(J.Get(ctx.Data, "orders")) ?? new ArrayList();
+                    var no = J.Num(rec["no"]);
+                    var others = orders.Cast<object>().Select(J.D).Where(r => r != null && J.Str(J.Get(r, "id")) != id).ToList();
+                    var used = new HashSet<double>(others.Select(r => J.Num(J.Get(r, "no"))));
+                    if (used.Contains(no))
+                    {
+                        double n = Math.Max(0, others.Where(r => { var d = J.Num(J.Get(r, "date")); return (double.IsNaN(d) ? 0 : d) >= since; }).Select(r => J.Num(J.Get(r, "no"))).DefaultIfEmpty(0).Max()) + 1;
+                        while (used.Contains(n)) n++;
+                        rec["no"] = (long)n; no = n;
+                    }
+                    if (s != null && !(J.Num(J.Get(s, "nextInvoice")) > no)) { s["nextInvoice"] = (long)no + 1; ctx.Touch("settings"); }
+                }
             }
             if (col == "tickets" && J.Str(J.Get(rec, "orderId")).Length > 0)
             {
@@ -90,7 +101,10 @@ namespace DalalaRestaurant
         {
             if (name != "settings" || val == null || cur == null) return null;
             bool changed = false; var o = new Dict(val);
-            if (J.Num(J.Get(cur, "nextInvoice")) > J.Num(J.Get(o, "nextInvoice"))) { o["nextInvoice"] = cur["nextInvoice"]; changed = true; }
+            double ra = J.Num(J.Get(cur, "invoiceResetAt")), rb = J.Num(J.Get(o, "invoiceResetAt")); if (double.IsNaN(ra)) ra = 0; if (double.IsNaN(rb)) rb = 0;
+            // a lower «next invoice number» is kept only when the admin changed it on purpose (newer invoiceResetAt)
+            if (J.Num(J.Get(cur, "nextInvoice")) > J.Num(J.Get(o, "nextInvoice")) && !(rb > ra)) { o["nextInvoice"] = cur["nextInvoice"]; changed = true; }
+            if (ra > rb) { o["invoiceResetAt"] = cur["invoiceResetAt"]; o["nextInvoice"] = cur["nextInvoice"]; changed = true; } // stale computer cannot push the old number back
             var a = J.D(J.Get(cur, "dailyNo")) ?? new Dict(); var b = J.D(J.Get(o, "dailyNo")) ?? new Dict();
             var ad = J.Str(J.Get(a, "day")); var bd = J.Str(J.Get(b, "day"));
             if (ad.Length > 0 && (bd.Length == 0 || string.CompareOrdinal(ad, bd) > 0 || (ad == bd && J.Num(J.Get(a, "n")) > J.Num(J.Get(b, "n"))))) { o["dailyNo"] = new Dict(a); changed = true; }

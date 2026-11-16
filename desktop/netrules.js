@@ -30,10 +30,13 @@ function put(col, rec, ctx) {
     }
   }
   if (col === 'orders' && rec.no != null && Number.isFinite(+rec.no)) {
-    const orders = ctx.data.orders || [];
-    if (orders.some(r => r.id !== rec.id && +r.no === +rec.no)) rec.no = Math.max(0, ...orders.filter(r => r.id !== rec.id).map(r => +r.no || 0)) + 1;
-    const s = settings(ctx);
-    if (s && !(+s.nextInvoice > +rec.no)) { s.nextInvoice = +rec.no + 1; ctx.touch('settings'); }
+    // numbering restarts when the admin changes «next invoice number» (settings.invoiceResetAt): only invoices made since then count
+    const s = settings(ctx); const since = (s && +s.invoiceResetAt) || 0;
+    if ((+rec.date || 0) >= since) {
+      const others = (ctx.data.orders || []).filter(r => r.id !== rec.id); const used = new Set(others.map(r => +r.no));
+      if (used.has(+rec.no)) { let n = Math.max(0, ...others.filter(r => (+r.date || 0) >= since).map(r => +r.no || 0)) + 1; while (used.has(n)) n++; rec.no = n; }
+      if (s && !(+s.nextInvoice > +rec.no)) { s.nextInvoice = +rec.no + 1; ctx.touch('settings'); }
+    }
   }
   if (col === 'tickets' && rec.orderId && mem[rec.orderId]) {
     const { from, to } = mem[rec.orderId];
@@ -45,7 +48,10 @@ function put(col, rec, ctx) {
 function obj(name, val, cur) {
   if (name !== 'settings' || !val || !cur) return null;
   let changed = false; const out = { ...val };
-  if (+cur.nextInvoice > +out.nextInvoice) { out.nextInvoice = cur.nextInvoice; changed = true; }
+  // a lower «next invoice number» is kept only when the admin changed it on purpose (newer invoiceResetAt)
+  if (+cur.nextInvoice > +out.nextInvoice && !(+out.invoiceResetAt > (+cur.invoiceResetAt || 0))) { out.nextInvoice = cur.nextInvoice; changed = true; }
+  // a computer that has not received the latest change of the number yet cannot push the old number back
+  if (+cur.invoiceResetAt > (+out.invoiceResetAt || 0)) { out.invoiceResetAt = cur.invoiceResetAt; out.nextInvoice = cur.nextInvoice; changed = true; }
   const a = cur.dailyNo || {}, b = out.dailyNo || {};
   if (a.day && (!b.day || a.day > b.day || (a.day === b.day && +a.n > +b.n))) { out.dailyNo = { ...a }; changed = true; }
   return changed ? out : null;
