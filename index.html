@@ -292,6 +292,8 @@ window.addEventListener('beforeunload', () => Store.saveNow());
 let DB; // shortcut to Store.data
 const S = () => DB.settings;
 const isQuick = () => DB.settings.mode === 'quick';
+// متابعة المواد الخام والمشتريات (اختيارية): عند إيقافها تختفي صفحة المخزون والمشتريات ويُسجَّل كل شراء كمصروف، والربح = المبيعات − المصروفات
+const useMat = () => { const s = DB.settings; if (s.useMaterials === undefined) s.useMaterials = (DB.purchases || []).length > 0; return !!s.useMaterials; };
 
 function money(n, withCur = true) {
   const d = S().decimals;
@@ -498,7 +500,7 @@ const NAV = [
   { id: 'expenses', name: 'المصروفات', icon: 'fa-wallet', perm: 'expenses' },
   { id: 'reports', name: 'التقارير', icon: 'fa-chart-pie', perm: 'reports' },
   { id: 'products', name: 'الأصناف', icon: 'fa-burger', perm: 'products' },
-  { id: 'inventory', name: 'المخزون', icon: 'fa-boxes-stacked', perm: 'inventory' },
+  { id: 'inventory', name: 'المخزون', icon: 'fa-boxes-stacked', perm: 'inventory', mat: true },
   { id: 'users', name: 'المستخدمون', icon: 'fa-users', admin: true },
   { id: 'settings', name: 'الإعدادات', icon: 'fa-gear', perm: 'settings' }
 ];
@@ -593,7 +595,7 @@ const App = {
 
   /* ---------- Navigation ---------- */
   renderNav() {
-    $('#sidebar').innerHTML = NAV.filter(n => (!n.admin || this.isAdmin()) && (!n.perm || Perm.can(n.perm)) && !(n.full && isQuick())).map(n => `
+    $('#sidebar').innerHTML = NAV.filter(n => (!n.admin || this.isAdmin()) && (!n.perm || Perm.can(n.perm)) && !(n.full && isQuick()) && !(n.mat && !useMat())).map(n => `
       <button class="nav-btn ${this.view === n.id ? 'active' : ''}" onclick="App.go('${n.id}')"><i class="fa-solid ${n.icon} text-lg"></i>${n.name}</button>`).join('') +
       `<div class="flex-1"></div>
        <button class="nav-btn" id="navShiftBtn" onclick="Shift.current() ? Shift.closeDialog() : Shift.openDialog()">${this.shiftBtnHtml()}</button>
@@ -629,6 +631,7 @@ const App = {
   go(id) {
     const n = NAV.find(x => x.id === id);
     if (n && n.full && isQuick()) id = 'pos';
+    if (n && n.mat && !useMat()) id = 'pos';
     if (n && ((n.admin && !this.isAdmin()) || (n.perm && !Perm.can(n.perm)))) return toast('لا تملك صلاحية الوصول', 'error');
     this.view = id;
     $$('.view').forEach(v => v.classList.toggle('hidden', v.dataset.view !== id));
@@ -1799,7 +1802,8 @@ function reportData() {
     purchases: sum(purs, x => x.total), purCount: purs.length, purMat: Object.values(purMat).sort((x, y) => y.total - x.total),
     // ربح الأصناف = المبيعات الصافية − تكلفة الأصناف المباعة | صافي الربح = ربح الأصناف − المصروفات (شراء المواد الخام لا يُخصم: تكلفته داخل الأصناف)
     // صافي النقدية = المبيعات الصافية − المشتريات − المصروفات (حركة المال الفعلية في الفترة)
-    cost, netSales, profit: netSales - cost, netProfit: netSales - cost - sum(exps, e => e.amount), noCost: [...noCost],
+    // بدون متابعة المواد الخام: لا تُستعمل تكلفة الأصناف، وصافي الربح = المبيعات الصافية − المصروفات (− أي مشتريات مسجلة سابقاً)
+    useMat: useMat(), cost, netSales, profit: netSales - cost, netProfit: useMat() ? netSales - cost - sum(exps, e => e.amount) : netSales - sum(purs, x => x.total) - sum(exps, e => e.amount), noCost: useMat() ? [...noCost] : [],
     net: netSales - sum(purs, x => x.total) - sum(exps, e => e.amount), prod, cat, hour, byUser, byType, byDay
   };
 }
@@ -1819,10 +1823,10 @@ VIEWS.reports = (el) => {
       ${kpi('إجمالي المبيعات', money(r.sales), 'fa-sack-dollar', 'text-emerald-400')}
       ${kpi('عدد الفواتير', r.count, 'fa-receipt', 'text-sky-300', 'متوسط الفاتورة ' + money(r.avg))}
       ${kpi('المصروفات', money(r.expenses), 'fa-wallet', 'text-rose-400')}
-      ${kpi('المشتريات', money(r.purchases), 'fa-cart-flatbed', 'text-orange-300', r.purCount + ' فاتورة شراء')}
-      ${kpi('ربح الأصناف', money(r.profit), 'fa-coins', r.profit >= 0 ? 'text-emerald-300' : 'text-rose-400', 'المبيعات الصافية ' + money(r.netSales) + ' − تكلفة الأصناف ' + money(r.cost))}
-      ${kpi('صافي الربح', money(r.netProfit), 'fa-chart-line', r.netProfit >= 0 ? 'text-emerald-300' : 'text-rose-400', 'ربح الأصناف − المصروفات')}
-      ${kpi('صافي النقدية', money(r.net), 'fa-cash-register', r.net >= 0 ? 'text-teal-300' : 'text-rose-400', 'المبيعات − المشتريات − المصروفات (حركة المال)')}
+      ${!r.useMat && !r.purchases ? '' : kpi('المشتريات', money(r.purchases), 'fa-cart-flatbed', 'text-orange-300', r.purCount + ' فاتورة شراء')}
+      ${r.useMat ? kpi('ربح الأصناف', money(r.profit), 'fa-coins', r.profit >= 0 ? 'text-emerald-300' : 'text-rose-400', 'المبيعات الصافية ' + money(r.netSales) + ' − تكلفة الأصناف ' + money(r.cost)) : ''}
+      ${kpi('صافي الربح', money(r.netProfit), 'fa-chart-line', r.netProfit >= 0 ? 'text-emerald-300' : 'text-rose-400', r.useMat ? 'ربح الأصناف − المصروفات' : 'المبيعات − المصروفات' + (r.purchases ? ' − المشتريات' : ''))}
+      ${!r.useMat ? '' : kpi('صافي النقدية', money(r.net), 'fa-cash-register', r.net >= 0 ? 'text-teal-300' : 'text-rose-400', 'المبيعات − المشتريات − المصروفات (حركة المال)')}
       ${kpi('نقدي', money(r.cash), 'fa-money-bill-wave', 'text-teal-300')}
       ${kpi('بطاقة', money(r.card), 'fa-credit-card', 'text-indigo-300')}
       ${kpi('الخصومات', money(r.discount), 'fa-tag', 'text-amber-300')}
@@ -1839,31 +1843,31 @@ VIEWS.reports = (el) => {
     </div>
     <div class="grid lg:grid-cols-3 gap-3 mb-3">
       <div class="card p-4 lg:col-span-2"><h3 class="font-bold mb-3 text-sm"><i class="fa-solid fa-trophy text-amber-400"></i> الأصناف الأكثر مبيعاً</h3>
-        <div class="max-h-80 overflow-auto"><table class="tbl"><thead><tr><th>#</th><th>الصنف</th><th>الكمية</th><th>المبيعات</th><th>التكلفة</th><th>الربح</th><th>النسبة</th></tr></thead><tbody>
-        ${top.map(([n, v], i) => `<tr><td class="num text-slate-500">${i + 1}</td><td>${esc(n)}</td><td class="num">${v.qty}</td><td class="num font-bold">${money(v.total)}</td><td class="num text-xs text-slate-400">${money(v.cost)}</td><td class="num font-bold ${v.net - v.cost >= 0 ? 'text-emerald-300' : 'text-rose-400'}">${money(v.net - v.cost)}</td><td class="num text-xs text-slate-400">${r.sales ? (v.total / (r.sales || 1) * 100).toFixed(1) : 0}%</td></tr>`).join('') || '<tr><td colspan="7" class="text-center text-slate-500 py-6">لا توجد مبيعات</td></tr>'}</tbody></table></div></div>
+        <div class="max-h-80 overflow-auto"><table class="tbl"><thead><tr><th>#</th><th>الصنف</th><th>الكمية</th><th>المبيعات</th>${r.useMat ? '<th>التكلفة</th><th>الربح</th>' : ''}<th>النسبة</th></tr></thead><tbody>
+        ${top.map(([n, v], i) => `<tr><td class="num text-slate-500">${i + 1}</td><td>${esc(n)}</td><td class="num">${v.qty}</td><td class="num font-bold">${money(v.total)}</td>${r.useMat ? `<td class="num text-xs text-slate-400">${money(v.cost)}</td><td class="num font-bold ${v.net - v.cost >= 0 ? 'text-emerald-300' : 'text-rose-400'}">${money(v.net - v.cost)}</td>` : ''}<td class="num text-xs text-slate-400">${r.sales ? (v.total / (r.sales || 1) * 100).toFixed(1) : 0}%</td></tr>`).join('') || '<tr><td colspan="7" class="text-center text-slate-500 py-6">لا توجد مبيعات</td></tr>'}</tbody></table></div></div>
       <div class="space-y-3">
         <div class="card p-4"><h3 class="font-bold mb-3 text-sm"><i class="fa-solid fa-user text-sky-400"></i> حسب الكاشير</h3>${bars(Object.entries(r.byUser), 'bg-sky-500')}</div>
         <div class="card p-4"><h3 class="font-bold mb-3 text-sm"><i class="fa-solid fa-wallet text-rose-400"></i> المصروفات حسب البند</h3>${bars(Object.entries(r.expCats), 'bg-rose-500')}</div>
       </div>
     </div>
-    <div class="card p-4 mb-3"><h3 class="font-bold mb-3 text-sm"><i class="fa-solid fa-cart-flatbed text-orange-300"></i> المشتريات (الكميات والأسعار)</h3>
+    ${!r.useMat && !r.purMat.length ? '' : `<div class="card p-4 mb-3"><h3 class="font-bold mb-3 text-sm"><i class="fa-solid fa-cart-flatbed text-orange-300"></i> المشتريات (الكميات والأسعار)</h3>
       <div class="max-h-72 overflow-auto"><table class="tbl"><thead><tr><th>المادة</th><th>الكمية</th><th>متوسط سعر الوحدة</th><th>الإجمالي</th></tr></thead><tbody>
       ${r.purMat.map(x => `<tr><td>${esc(x.name)}</td><td class="num">${r3(x.qty)} ${esc(x.unit)}</td><td class="num">${money(x.qty ? x.total / x.qty : 0)}</td><td class="num font-bold">${money(x.total)}</td></tr>`).join('') || '<tr><td colspan="4" class="text-center text-slate-500 py-4">لا توجد مشتريات في هذه الفترة</td></tr>'}</tbody>
       ${r.purMat.length ? `<tfoot><tr><td colspan="3" class="font-bold">الإجمالي (يُطرح في صافي النقدية)</td><td class="num font-bold text-orange-300">${money(r.purchases)}</td></tr></tfoot>` : ''}</table></div>
-    </div>
+    </div>`}
     ${days.length > 1 ? `<div class="card p-4 mb-3"><h3 class="font-bold mb-3 text-sm"><i class="fa-solid fa-calendar-days text-emerald-400"></i> المبيعات اليومية</h3>${bars(days, 'bg-emerald-500')}</div>` : ''}
     ${Rep.stockAlert()}`;
 };
 const Rep = {
   stockAlert() {
-    const lowM = DB.materials.filter(m => m.min > 0 && m.stock <= m.min);
+    const lowM = useMat() ? DB.materials.filter(m => m.min > 0 && m.stock <= m.min) : [];
     const matHtml = lowM.length ? `<div class="card p-4 border-rose-500/40 mb-3"><h3 class="font-bold mb-2 text-sm text-rose-300"><i class="fa-solid fa-triangle-exclamation"></i> مواد خام منخفضة</h3><div class="flex flex-wrap gap-2">${lowM.map(m => `<span class="chip bg-rose-500/15 border-rose-500/30 text-rose-200">${esc(m.name)}: ${m.pack ? stockText(m) : m.stock + ' ' + esc(m.unit)}</span>`).join('')}</div></div>` : '';
     const low = DB.products.filter(p => p.trackStock && p.stock <= S().lowStockAlert);
     return matHtml + (low.length ? `<div class="card p-4 border-rose-500/40"><h3 class="font-bold mb-2 text-sm text-rose-300"><i class="fa-solid fa-triangle-exclamation"></i> أصناف مخزونها منخفض</h3><div class="flex flex-wrap gap-2">${low.map(p => `<span class="chip bg-rose-500/15 border-rose-500/30 text-rose-200">${esc(p.name)}: ${p.stock}</span>`).join('')}</div></div>` : '');
   },
   exportProducts() {
     const r = reportData();
-    const rows = [['الصنف', 'الكمية', 'المبيعات', 'بعد الخصم', 'التكلفة', 'الربح']].concat(Object.entries(r.prod).sort((a, b) => b[1].total - a[1].total).map(([n, v]) => [n, v.qty, round(v.total), round(v.net), round(v.cost), round(v.net - v.cost)]));
+    const rows = [['الصنف', 'الكمية', 'المبيعات', 'بعد الخصم'].concat(r.useMat ? ['التكلفة', 'الربح'] : [])].concat(Object.entries(r.prod).sort((a, b) => b[1].total - a[1].total).map(([n, v]) => [n, v.qty, round(v.total), round(v.net)].concat(r.useMat ? [round(v.cost), round(v.net - v.cost)] : [])));
     downloadFile(`مبيعات_الأصناف_${Range.from}_${Range.to}.csv`, toCSV(rows), 'text/csv;charset=utf-8');
   },
   shifts() {
@@ -1946,7 +1950,7 @@ Object.assign(Prod, {
         <div><input class="inp num" type="number" step="any" value="${p.stock}" data-stock placeholder="الكمية الحالية"></div>
         <label class="flex items-center justify-between gap-2 card p-2.5 text-sm col-span-2"><span>يُرسل إلى المطبخ (يطبع في تذكرة المطبخ)</span><label class="switch"><input type="checkbox" ${p.kitchen !== false ? 'checked' : ''} data-kitchen><span></span></label></label>
       </div>
-      <div class="mt-3 card p-3"><div class="flex items-center justify-between mb-1"><span class="lbl !mb-0"><i class="fa-solid fa-flask text-teal-400"></i> الوصفة (المواد الخام لكل حصة)</span><button type="button" class="btn-ghost text-xs py-1" data-addrec><i class="fa-solid fa-plus"></i> مادة</button></div>
+      <div class="mt-3 card p-3" ${useMat() ? '' : 'style="display:none"'}><div class="flex items-center justify-between mb-1"><span class="lbl !mb-0"><i class="fa-solid fa-flask text-teal-400"></i> الوصفة (المواد الخام لكل حصة)</span><button type="button" class="btn-ghost text-xs py-1" data-addrec><i class="fa-solid fa-plus"></i> مادة</button></div>
         <p class="text-[11px] text-slate-500 mb-2">عند البيع تُخصم المواد تلقائياً من المخزون، وتُحسب تكلفة الصنف منها.</p><div data-rec class="space-y-1.5"></div><div class="text-xs text-slate-400 mt-2" data-reccost></div></div>
       <label class="lbl mt-3">الأيقونة</label>
       <div class="grid grid-cols-10 gap-1 max-h-28 overflow-y-auto card p-2" data-icons>${ICONS.map(i => `<button data-i="${i}" class="aspect-square rounded-lg text-base ${i === icon ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}"><i class="fa-solid ${i}"></i></button>`).join('')}</div>
@@ -2243,6 +2247,7 @@ VIEWS.settings = (el) => {
       <div class="mt-3"><label class="lbl">رسوم التوصيل لمن؟</label><select class="inp" onchange="Cfg.v('deliveryFeeTo',this.value)"><option value="driver" ${(s.deliveryFeeTo || 'driver') === 'driver' ? 'selected' : ''}>لعامل التوصيل — لا تُضاف للفاتورة (يتفق عليها العامل مع الزبون مباشرة)</option><option value="restaurant" ${s.deliveryFeeTo === 'restaurant' ? 'selected' : ''}>للمطعم (عامل توصيل تابع للمطعم) — تُضاف للفاتورة وتُحسب دخلاً ضمن الربح</option></select><span class="block text-[11px] text-slate-500 mt-1">عند اختيار «لعامل التوصيل» لا تظهر رسوم التوصيل في الكاشير ولا في الفاتورة، ولا علاقة للمنظومة بها. «رسوم التوصيل الافتراضية» تُستخدم فقط عند اختيار «للمطعم». الفواتير السابقة تبقى كما سُجلت.</span></div>
       ${sw('serviceDineOnly', 'الخدمة على طلبات الصالة فقط')}
       ${sw('requireShift', 'إلزام فتح وردية قبل البيع', 'لتتبع النقد في الدرج ومطابقته عند الإغلاق')}
+      ${sw('useMaterials', 'متابعة المواد الخام والمشتريات', 'عند الإيقاف: تختفي صفحة «المخزون والمشتريات» ووصفات الأصناف، ويُسجَّل كل شراء في المصروفات، ويُحسب الربح = المبيعات − المصروفات')}
       ${inp('lowStockAlert', 'تنبيه انخفاض المخزون عند', 'number')}
     </div>
     <div class="card p-5"><h3 class="font-bold mb-4"><i class="fa-solid fa-print text-indigo-400"></i> الطباعة</h3>
@@ -2491,17 +2496,18 @@ th.n,td.n{text-align:center}tfoot td{background:#e2e8f0!important;font-weight:80
     const pair = o => Object.entries(o).sort((a, b) => b[1] - a[1]).map(([k, v]) => [k, m(v), pct(v, r.sales)]);
     const days = Object.entries(r.byDay).sort(), hours = r.hour.map((v, h) => [h, v]).filter(x => x[1] > 0);
     return { title: 'تقرير المبيعات والإحصائيات', file: 'تقرير_المبيعات', sub: 'الفترة: ' + this.period(),
-      kpis: [['إجمالي المبيعات', money(r.sales), 'good'], ['عدد الفواتير', r.count], ['متوسط الفاتورة', money(r.avg)], ['المصروفات', money(r.expenses), 'bad'], ['المشتريات', money(r.purchases), 'bad'],
-        ['ربح الأصناف (المبيعات الصافية − تكلفة الأصناف)', money(r.profit), r.profit >= 0 ? 'good' : 'bad'], ['صافي الربح (ربح الأصناف − المصروفات)', money(r.netProfit), r.netProfit >= 0 ? 'good' : 'bad'],
-        ['صافي النقدية (المبيعات − المشتريات − المصروفات)', money(net), net >= 0 ? 'good' : 'bad'], ['نقدي', money(r.cash)], ['بطاقة', money(r.card)], ['الخصومات', money(r.discount), 'warn'],
+      kpis: [['إجمالي المبيعات', money(r.sales), 'good'], ['عدد الفواتير', r.count], ['متوسط الفاتورة', money(r.avg)], ['المصروفات', money(r.expenses), 'bad'], ...(r.useMat || r.purchases ? [['المشتريات', money(r.purchases), 'bad']] : []),
+        ...(r.useMat ? [['ربح الأصناف (المبيعات الصافية − تكلفة الأصناف)', money(r.profit), r.profit >= 0 ? 'good' : 'bad'], ['صافي الربح (ربح الأصناف − المصروفات)', money(r.netProfit), r.netProfit >= 0 ? 'good' : 'bad'],
+        ['صافي النقدية (المبيعات − المشتريات − المصروفات)', money(net), net >= 0 ? 'good' : 'bad']] : [['صافي الربح (المبيعات − المصروفات' + (r.purchases ? ' − المشتريات' : '') + ')', money(r.netProfit), r.netProfit >= 0 ? 'good' : 'bad']]), ['نقدي', money(r.cash)], ['بطاقة', money(r.card)], ['الخصومات', money(r.discount), 'warn'],
         ['الخدمة', money(r.service)], ['الضريبة', money(r.tax)], ['التوصيل', money(r.delivery)], ...(r.deliveryDriver ? [['منها لعامل التوصيل (لا تدخل في الربح)', money(r.deliveryDriver)]] : []), ...(r.deliveryRest ? [['منها للمطعم (ضمن الربح)', money(r.deliveryRest)]] : []), ['ملغاة / مرتجعة', r.voids.length + ' — ' + money(r.voids.reduce((s, o) => s + o.total, 0)), 'bad']],
       sections: [
-        { title: 'الأصناف الأكثر مبيعاً', cols: ['#', 'الصنف', 'الكمية', 'المبيعات', 'التكلفة', 'الربح', 'النسبة'], num: [0, 2, 3, 4, 5, 6], rows: top.map(([n, v], i) => [i + 1, n, v.qty, m(v.total), m(v.cost), m(v.net - v.cost), pct(v.total, r.sales)]), thermal: [1, 2, 3, 5], foot: ['', 'الإجمالي', top.reduce((a, [, v]) => a + v.qty, 0), m(top.reduce((a, [, v]) => a + v.total, 0)), m(r.cost), m(top.reduce((a, [, v]) => a + v.net - v.cost, 0)), ''] },
+        r.useMat ? { title: 'الأصناف الأكثر مبيعاً', cols: ['#', 'الصنف', 'الكمية', 'المبيعات', 'التكلفة', 'الربح', 'النسبة'], num: [0, 2, 3, 4, 5, 6], rows: top.map(([n, v], i) => [i + 1, n, v.qty, m(v.total), m(v.cost), m(v.net - v.cost), pct(v.total, r.sales)]), thermal: [1, 2, 3, 5], foot: ['', 'الإجمالي', top.reduce((a, [, v]) => a + v.qty, 0), m(top.reduce((a, [, v]) => a + v.total, 0)), m(r.cost), m(top.reduce((a, [, v]) => a + v.net - v.cost, 0)), ''] }
+          : { title: 'الأصناف الأكثر مبيعاً', cols: ['#', 'الصنف', 'الكمية', 'المبيعات', 'النسبة'], num: [0, 2, 3, 4], rows: top.map(([n, v], i) => [i + 1, n, v.qty, m(v.total), pct(v.total, r.sales)]), thermal: [1, 2, 3], foot: ['', 'الإجمالي', top.reduce((a, [, v]) => a + v.qty, 0), m(r.sales), ''] },
         { title: 'المبيعات حسب القسم', cols: ['القسم', 'المبيعات', 'النسبة'], num: [1, 2], rows: pair(r.cat), thermal: [0, 1] },
         { title: 'المبيعات حسب نوع الطلب', cols: ['النوع', 'المبيعات', 'النسبة'], num: [1, 2], rows: pair(r.byType), thermal: [0, 1] },
         { title: 'المبيعات حسب الكاشير', cols: ['الكاشير', 'المبيعات', 'النسبة'], num: [1, 2], rows: pair(r.byUser), thermal: [0, 1] },
         { title: 'المصروفات حسب البند', cols: ['البند', 'المبلغ'], num: [1], rows: Object.entries(r.expCats).sort((a, b) => b[1] - a[1]).map(([k, v]) => [k, m(v)]), foot: ['الإجمالي', m(r.expenses)] },
-        { title: 'المشتريات (الكميات والأسعار)', cols: ['المادة', 'الكمية', 'متوسط سعر الوحدة', 'الإجمالي'], num: [1, 2, 3], thermal: [0, 3], rows: r.purMat.map(x => [x.name, r3(x.qty) + ' ' + x.unit, m(x.qty ? x.total / x.qty : 0), m(x.total)]), foot: ['الإجمالي', '', '', m(r.purchases)] },
+        ...(r.useMat || r.purMat.length ? [{ title: 'المشتريات (الكميات والأسعار)', cols: ['المادة', 'الكمية', 'متوسط سعر الوحدة', 'الإجمالي'], num: [1, 2, 3], thermal: [0, 3], rows: r.purMat.map(x => [x.name, r3(x.qty) + ' ' + x.unit, m(x.qty ? x.total / x.qty : 0), m(x.total)]), foot: ['الإجمالي', '', '', m(r.purchases)] }] : []),
         { title: 'المبيعات اليومية', cols: ['التاريخ', 'المبيعات'], num: [1], rows: days.map(([d, v]) => [d, m(v)]) },
         { title: 'المبيعات حسب الساعة', cols: ['الساعة', 'المبيعات'], num: [0, 1], rows: hours.map(([h, v]) => [h + ':00', m(v)]) }] };
   },
@@ -2657,7 +2663,7 @@ document.addEventListener('keydown', e => {
 document.addEventListener('wheel', e => { if (e.ctrlKey) { e.preventDefault(); Theme.step(e.deltaY < 0 ? 1 : -1); } }, { passive: false });
 if (window.matchMedia) { try { window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => { if (Theme.get().mode === 'auto') Theme.apply(); }); } catch (e) {} }
 const Cfg = {
-  v(k, val) { S()[k] = val; if (k === 'nextInvoice') { S().nextInvoice = Math.max(1, parseInt(val) || 1); S().invoiceResetAt = Date.now(); } Store.save(); if (['name', 'logo'].includes(k)) App.brand(); if (['silentPrint', 'decimals', 'currency'].includes(k)) App.refresh(); if (k === 'deliveryFeeTo' && window.POS && POS.cur && POS.renderOrder) try { POS.renderOrder(); } catch (e) {} toast('تم الحفظ', 'success'); },
+  v(k, val) { S()[k] = val; if (k === 'nextInvoice') { S().nextInvoice = Math.max(1, parseInt(val) || 1); S().invoiceResetAt = Date.now(); } Store.save(); if (['name', 'logo'].includes(k)) App.brand(); if (['silentPrint', 'decimals', 'currency'].includes(k)) App.refresh(); if (k === 'useMaterials') App.renderNav(); if (k === 'deliveryFeeTo' && window.POS && POS.cur && POS.renderOrder) try { POS.renderOrder(); } catch (e) {} toast('تم الحفظ', 'success'); },
   async logo(inp) { const f = inp.files[0]; if (!f) return; S().logo = await resizeImage(await readFileAs(f, 'url'), 300); Store.save(); App.brand(); App.refresh(); },
   async addTables() {
     const w = Modal.open(`<div class="grid grid-cols-2 gap-3"><div><label class="lbl">عدد الطاولات</label><input class="inp num" type="number" value="4" data-n></div>
@@ -2890,10 +2896,10 @@ const Printer = {
     const body = `${this.header()}<div class="hr"></div><div class="c b big">تقرير المبيعات</div><div class="c">من ${Range.from} إلى ${Range.to}</div><div class="hr"></div>
       ${row('عدد الفواتير:', r.count)}${row('إجمالي المبيعات:', money(r.sales))}${row('متوسط الفاتورة:', money(r.avg))}${row('الخصومات:', money(r.discount))}
       ${r.service ? row('الخدمة:', money(r.service)) : ''}${r.tax ? row('الضريبة:', money(r.tax)) : ''}${r.delivery ? row('التوصيل:', money(r.delivery)) : ''}${r.deliveryDriver ? row('منها لعامل التوصيل:', money(r.deliveryDriver)) : ''}
-      <div class="hr"></div>${row('نقدي:', money(r.cash))}${row('بطاقة:', money(r.card))}${row('المصروفات:', money(r.expenses))}${row('المشتريات:', money(r.purchases))}${row('الملغاة:', r.voids.length)}
-      ${row('ربح الأصناف:', money(r.profit))}${row('صافي الربح (− المصروفات):', money(r.netProfit))}${row('صافي النقدية (− المشتريات − المصروفات):', money(r.net))}
+      <div class="hr"></div>${row('نقدي:', money(r.cash))}${row('بطاقة:', money(r.card))}${row('المصروفات:', money(r.expenses))}${r.useMat || r.purchases ? row('المشتريات:', money(r.purchases)) : ''}${row('الملغاة:', r.voids.length)}
+      ${r.useMat ? row('ربح الأصناف:', money(r.profit)) + row('صافي الربح (− المصروفات):', money(r.netProfit)) + row('صافي النقدية (− المشتريات − المصروفات):', money(r.net)) : row('صافي الربح (المبيعات − المصروفات):', money(r.netProfit))}
       <div class="hr2"></div><div class="b">الأصناف المباعة</div>
-      <table><thead><tr><th>الصنف</th><th class="c">كمية</th><th class="l">المبلغ</th><th class="l">الربح</th></tr></thead><tbody>${top.map(([n, v]) => `<tr><td>${esc(n)}</td><td class="c">${v.qty}</td><td class="l">${money(v.total, false)}</td><td class="l">${money(v.net - v.cost, false)}</td></tr>`).join('')}</tbody></table>
+      <table><thead><tr><th>الصنف</th><th class="c">كمية</th><th class="l">المبلغ</th>${r.useMat ? '<th class="l">الربح</th>' : ''}</tr></thead><tbody>${top.map(([n, v]) => `<tr><td>${esc(n)}</td><td class="c">${v.qty}</td><td class="l">${money(v.total, false)}</td>${r.useMat ? `<td class="l">${money(v.net - v.cost, false)}</td>` : ''}</tr>`).join('')}</tbody></table>
       <div class="hr"></div><div class="c sm">طُبع في ${fmtDT(Date.now())} بواسطة ${esc(App.user.name)}</div>`;
     this.print(body);
   },
