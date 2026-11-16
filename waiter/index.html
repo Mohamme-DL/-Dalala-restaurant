@@ -109,6 +109,9 @@ input:focus,textarea:focus{border-color:var(--pri);box-shadow:0 0 0 3px #38bdf83
 <body>
 <div id="app"></div>
 <script>
+// تكلفة الصنف كما في المنظومة: من الوصفة (المواد الخام) إن وُجدت، وإلا التكلفة المكتوبة في بطاقة الصنف
+function unitCostOf(p, d) { const r = p.recipe || []; if (!r.length) return +p.cost || 0; const mats = (d && d.materials) || []; return Math.round(r.reduce((a, x) => { const m = mats.find(q => q.id === x.mid); return a + (m ? (+m.cost || 0) * (+x.qty || 0) : 0); }, 0) * 10000) / 10000; }
+
 'use strict';
 /* تطبيق النادل — يعمل على الهاتف/الآيباد من متصفح الجهاز، ويتصل بجهاز الكاشير الرئيسي عبر الواي فاي.
    الطلبات تُحفظ في قاعدة بيانات الكاشير وتُطبع تذكرة المطبخ هناك تلقائيًا. */
@@ -237,7 +240,7 @@ function build(it) {
       const note = x.note || '';
       const line = o.items.find(l => l.pid === p.id && (l.note || '') === note && l.price === p.price && (l.sent || 0) >= l.qty);
       if (line) { line.qty += x.qty; line.sent = line.qty; }
-      else o.items.push({ pid: p.id, name: p.name, price: p.price, cost: p.cost || 0, qty: x.qty, note, sent: x.qty, kitchen: p.kitchen !== false });
+      else o.items.push({ pid: p.id, name: p.name, price: p.price, cost: unitCostOf(p, d), qty: x.qty, note, sent: x.qty, kitchen: p.kitchen !== false });
       if (p.kitchen !== false) tItems.push({ name: p.name, qty: x.qty, note });
     }
     if (!tItems.length && !it.items.length) return null;
