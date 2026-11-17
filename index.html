@@ -295,7 +295,7 @@ let DB; // shortcut to Store.data
 const S = () => DB.settings;
 const isQuick = () => DB.settings.mode === 'quick';
 // متابعة المواد الخام والمشتريات (اختيارية): عند إيقافها تختفي صفحة المخزون والمشتريات ويُسجَّل كل شراء كمصروف، والربح = المبيعات − المصروفات
-const useMat = () => { const s = DB.settings; if (s.useMaterials === undefined) s.useMaterials = (DB.purchases || []).length > 0; return !!s.useMaterials; };
+const useMat = () => { const s = DB.settings; if (s.useMaterials === undefined) s.useMaterials = true; return !!s.useMaterials; }; // مفعّلة افتراضياً (كما كانت المنظومة)؛ يمكن إيقافها من الإعدادات
 
 function money(n, withCur = true) {
   const d = S().decimals;
@@ -2384,7 +2384,7 @@ VIEWS.settings = (el) => {
       <div class="mt-3"><label class="lbl">رسوم التوصيل لمن؟</label><select class="inp" onchange="Cfg.v('deliveryFeeTo',this.value)"><option value="driver" ${(s.deliveryFeeTo || 'driver') === 'driver' ? 'selected' : ''}>لعامل التوصيل — لا تُضاف للفاتورة (يتفق عليها العامل مع الزبون مباشرة)</option><option value="restaurant" ${s.deliveryFeeTo === 'restaurant' ? 'selected' : ''}>للمطعم (عامل توصيل تابع للمطعم) — تُضاف للفاتورة وتُحسب دخلاً ضمن الربح</option></select><span class="block text-[11px] text-slate-500 mt-1">عند اختيار «لعامل التوصيل» لا تظهر رسوم التوصيل في الكاشير ولا في الفاتورة، ولا علاقة للمنظومة بها. «رسوم التوصيل الافتراضية» تُستخدم فقط عند اختيار «للمطعم». الفواتير السابقة تبقى كما سُجلت.</span></div>
       ${sw('serviceDineOnly', 'الخدمة على طلبات الصالة فقط')}
       ${sw('requireShift', 'إلزام فتح وردية قبل البيع', 'لتتبع النقد في الدرج ومطابقته عند الإغلاق')}
-      ${sw('useMaterials', 'متابعة المواد الخام والمشتريات', 'عند الإيقاف: تختفي صفحة «المخزون والمشتريات» ووصفات الأصناف، ويُسجَّل كل شراء في المصروفات، ويُحسب الربح = المبيعات − المصروفات')}
+      ${sw('useMaterials', 'متابعة المواد الخام والمشتريات', 'مفعّلة افتراضياً. عند الإيقاف: تختفي صفحة «المخزون والمشتريات» ووصفات الأصناف، ويُسجَّل كل شراء في المصروفات، ويُحسب الربح = المبيعات − المصروفات')}
       ${inp('lowStockAlert', 'تنبيه انخفاض المخزون عند', 'number')}
     </div>
     <div class="card p-5"><h3 class="font-bold mb-4"><i class="fa-solid fa-print text-indigo-400"></i> الطباعة</h3>
