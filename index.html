@@ -3006,7 +3006,7 @@ const Printer = {
     const paint = () => { $$('.kp', w).forEach(b => { const on = chosen.has(+b.dataset.k); b.style.borderColor = on ? '#0ea5e9' : ''; b.style.borderWidth = on ? '2px' : ''; b.style.background = on ? 'rgba(14,165,233,.35)' : ''; const i = b.querySelector('i'); if (i) i.className = 'fa-solid ' + (on ? 'fa-circle-check text-sky-300' : 'fa-print'); }); $('[data-go]', w).disabled = !chosen.size; };
     $$('.kp', w).forEach(b => b.onclick = () => { const n = +b.dataset.k; chosen.has(n) ? chosen.delete(n) : chosen.add(n); paint(); });
     let fin = false;
-    const finish = sel => { if (fin) return; fin = true; window.removeEventListener('keydown', keys, true); Modal.close(w); t.printedTo = sel.map(k => k.n); Store.save(); if (sel.length) go(sel); };
+    const finish = sel => { if (fin) return; fin = true; window.removeEventListener('keydown', keys, true); Modal.close(w); t.printedTo = sel.map(k => k.n); Store.save(); if (sel.length) { go(sel); toast('أُرسلت تذكرة المطبخ إلى: ' + sel.map(name).join('، '), 'success'); } };
     $('[data-go]', w).onclick = () => finish(list.filter(k => chosen.has(k.n)));
     $('[data-all]', w).onclick = () => finish(list);
     $('[data-skip]', w).onclick = () => finish([]);
@@ -3017,9 +3017,10 @@ const Printer = {
     [1, 2, 3, 4].forEach(n => {
       const prn = n === 1 ? (s.kitchenPrinter || '') : (s['kitchenPrinter' + n] || '');
       if (n > 1 && !prn) return;
-      const dev = prn || s.printerName || '';
-      if (dev === '-' || seen.has(dev)) return; seen.add(dev);
-      out.push({ n, printer: dev, label: String(s['kitchenLabel' + n] || '').trim() });
+      const dev = prn || s.printerName || '', label = String(s['kitchenLabel' + n] || '').trim();
+      // أقسام مختلفة على نفس الطابعة تبقى أقساماً منفصلة (كل قسم بتذكرته)؛ المكرر بلا اسم قسم يُحذف
+      if (dev === '-' || seen.has(dev + '|' + label)) return; seen.add(dev + '|' + label);
+      out.push({ n, printer: dev, label });
     });
     return out;
   },
