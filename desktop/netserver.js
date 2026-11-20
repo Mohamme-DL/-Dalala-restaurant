@@ -18,7 +18,7 @@ const NUMBERED = { number: true, code: true };
 const AUTO_CODE = /^([A-Za-z]+-)(\d+)$/;
 const LOG_MAX = 5000;
 
-function createServer({ port, key, dir, onEvent = () => {}, rules = {} }) {
+function createServer({ port, key, dir, onEvent = () => {}, rules = {}, webRoot = '' }) {
   const file = path.join(dir, 'shared-db.json');
   const backups = path.join(dir, 'backups');
   const jfile = path.join(dir, 'journal.ndjson'); // every confirmed change is written here first (durability)
@@ -126,10 +126,25 @@ function createServer({ port, key, dir, onEvent = () => {}, rules = {} }) {
   }
   const since = v => (log.length && log[0].v <= v + 1) || v === state.version ? { version: state.version, entries: log.filter(e => e.v > v) } : null;
 
+  const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json', '.webmanifest': 'application/manifest+json' };
+  function serveWaiter(req, res, p) {
+    const txt = (code, t, extra) => { res.writeHead(code, { 'content-type': 'text/plain; charset=utf-8', ...(extra || {}) }); res.end(t); };
+    if (p === '/w') return txt(302, '', { location: '/w/' });
+    try {
+      if (!webRoot || !fs.existsSync(webRoot)) return txt(404, 'waiter app not installed');
+      const full = path.resolve(webRoot); let rel = decodeURIComponent(p.slice(3)); if (!rel) rel = 'index.html';
+      const f = path.resolve(full, rel);
+      if (!f.toLowerCase().startsWith((full + path.sep).toLowerCase()) || !fs.existsSync(f) || !fs.statSync(f).isFile()) return txt(404, 'not found');
+      res.writeHead(200, { 'content-type': MIME[path.extname(f).toLowerCase()] || 'application/octet-stream', 'cache-control': 'no-cache' });
+      return res.end(req.method === 'HEAD' ? undefined : fs.readFileSync(f));
+    } catch (e) { return txt(404, 'not found'); }
+  }
   const server = http.createServer((req, res) => {
     const send = (code, obj) => { res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type, x-dalala-key, x-dalala-client', 'access-control-allow-methods': 'GET, POST, OPTIONS', 'cache-control': 'no-store' }); res.end(JSON.stringify(obj)); };
     if (req.method === 'OPTIONS') return send(204, {});
     const url = new URL(req.url, 'http://x');
+    // waiter web app (phones / tablets) served at /w/ without the key; the data API below still needs it
+    if ((req.method === 'GET' || req.method === 'HEAD') && (url.pathname === '/w' || url.pathname.startsWith('/w/'))) return serveWaiter(req, res, url.pathname);
     const okKey = (() => { const k = String(req.headers['x-dalala-key'] || ''); return k.length === key.length && crypto.timingSafeEqual(Buffer.from(k), Buffer.from(key)); })();
     if (url.pathname === '/api/ping') return send(200, { ok: true, app: 'dalala', version: state.version, keyOk: okKey });
     if (!okKey) return send(401, { error: 'key' });
