@@ -2393,9 +2393,9 @@ VIEWS.settings = (el) => {
       ${sw('autoPrint', 'طباعة الفاتورة تلقائياً بعد الدفع')}
       ${sw('kitchenPrint', isQuick() ? 'طباعة تذكرة تحضير (للباريستا) مع كل بيع' : 'طباعة تذكرة المطبخ عند الحفظ/الإرسال')}
       ${PRN() ? `${sw('silentPrint', 'طباعة مباشرة بدون نافذة (صامتة)', 'تُطبع مباشرة بلا أي نافذة على الطابعة المحددة أدناه (أو طابعة ويندوز الافتراضية إن لم تُحدَّد)')}
-        <div class="grid sm:grid-cols-2 gap-3 mt-3"><div><label class="lbl">طابعة الفواتير</label><select class="inp" id="prnR" onchange="Cfg.v('printerName',this.value)"><option value="">الطابعة الافتراضية</option><option value="-" ${s.printerName === '-' ? 'selected' : ''}>بلا — لا توجد طابعة</option></select></div>
-        <div><label class="lbl">طابعة ورق A4 (التقارير والمصروفات)</label><select class="inp" id="prnA4" onchange="Cfg.v('a4Printer',this.value)"><option value="">نفس طابعة الفواتير / نافذة الطباعة</option><option value="-" ${s.a4Printer === '-' ? 'selected' : ''}>بلا — لا توجد طابعة</option></select></div>
-        </div>
+        <div class="grid sm:grid-cols-2 gap-3 mt-3"><div><label class="lbl">طابعة الفواتير (حرارية فقط)</label><select class="inp" id="prnR" onchange="Cfg.v('printerName',this.value);Cfg.prnNote()"><option value="">تلقائي — أول طابعة حرارية</option><option value="-" ${s.printerName === '-' ? 'selected' : ''}>بلا — لا توجد طابعة</option></select></div>
+        <div><label class="lbl">طابعة ورق A4 (التقارير والمصروفات والمشتريات فقط)</label><select class="inp" id="prnA4" onchange="Cfg.v('a4Printer',this.value)"><option value="">نافذة الطباعة (اختر طابعة A4 عند كل طباعة)</option><option value="-" ${s.a4Printer === '-' ? 'selected' : ''}>بلا — لا توجد طابعة</option></select></div>
+        </div><div class="text-xs mt-2" id="prnNote" style="color:#94a3b8"></div>
         <div class="mt-3"><div class="lbl">طابعات المطبخ (حتى 4) — نفس تذكرة المطبخ تُطبع على كل طابعة مختارة</div>
           ${[1, 2, 3, 4].map(n => `<div class="mt-2" style="display:grid;grid-template-columns:64px 1fr 1fr;gap:8px;align-items:center"><span class="text-xs text-slate-400">طابعة ${n}</span>
             <input class="inp py-1.5 text-xs" placeholder="اسم القسم (اختياري) مثل: المشويات" value="${esc(s['kitchenLabel' + n] || '')}" onchange="Cfg.v('kitchenLabel${n}',this.value.trim())">
@@ -2429,10 +2429,12 @@ VIEWS.settings = (el) => {
   Backup.renderList($('#bkList'));
   if (PRN() && PRN().printers) PRN().printers().then(list => { list = (list || []).map(x => typeof x === 'string' ? { name: x } : x);
     [['prnR', 'printerName'], ['prnA4', 'a4Printer'], ['prnK1', 'kitchenPrinter'], ['prnK2', 'kitchenPrinter2'], ['prnK3', 'kitchenPrinter3'], ['prnK4', 'kitchenPrinter4']].forEach(([id, key]) => { const sel = $('#' + id); if (!sel) return; const cur = s[key]; list.forEach(p => sel.insertAdjacentHTML('beforeend', `<option ${p.name === cur ? 'selected' : ''}>${esc(p.name)}</option>`)); });
+    Printer._pl = list; Cfg.prnNote();
   });
 };
 // طبقة الطباعة: نسخة Electron (window.dalala) أو نسخة WebView2 (window.dalalaPrint)
 const PRN = () => (Store.isDesktop && window.dalala && window.dalala.print) ? window.dalala : (window.dalalaPrint || null);
+window.addEventListener('load', () => setTimeout(() => { try { Printer.loadList(); } catch (e) { /* no printer layer */ } }, 800));
 /* =====================================================================
    Docs: طباعة وتصدير التقارير والجداول — A4 / حراري / Word (.docx) / Excel (CSV)
    كل صفحة تبني «مواصفة» (عنوان + مؤشرات + جداول) ثم يخرجها هذا القسم بالشكل المطلوب
@@ -2509,7 +2511,7 @@ th.n,td.n{text-align:center}tfoot td{background:#e2e8f0!important;font-weight:80
   },
   printA4(spec) {
     const s = S();
-    if (s.a4Printer === '-' || (!s.a4Printer && s.printerName === '-')) return toast('لا توجد طابعة A4 (مضبوطة على «بلا» في الإعدادات) — استخدم التصدير Word/Excel', 'info');
+    if (s.a4Printer === '-') return toast('لا توجد طابعة A4 (مضبوطة على «بلا» في الإعدادات) — استخدم التصدير Word/Excel', 'info');
     // طباعة مباشرة على طابعة A4 المحددة (إن كانت الطباعة المباشرة مفعّلة)، وإلا نافذة الطباعة
     if (PRN() && s.silentPrint && s.a4Printer) {
       PRN().print(this.a4Html(spec), { silent: true, deviceName: s.a4Printer, copies: 1, paper: 210 })
@@ -2800,6 +2802,16 @@ document.addEventListener('keydown', e => {
 document.addEventListener('wheel', e => { if (e.ctrlKey) { e.preventDefault(); Theme.step(e.deltaY < 0 ? 1 : -1); } }, { passive: false });
 if (window.matchMedia) { try { window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => { if (Theme.get().mode === 'auto') Theme.apply(); }); } catch (e) {} }
 const Cfg = {
+  // ملاحظة تحت «طابعة الفواتير»: توضح أي طابعة ستُستعمل وتحذّر إن بدت طابعة A4
+  prnNote() {
+    const el = $('#prnNote'); if (!el) return;
+    const s = S(), n = s.printerName, ok = '#34d399', bad = '#fbbf24';
+    let t = '', c = '#94a3b8';
+    if (n === '-') t = 'الفواتير: لن تُطبع (بلا).';
+    else if (n) { if (Printer.isA4Name(n)) { t = '⚠ «' + n + '» تبدو طابعة A4 — الفواتير يجب أن تكون على الطابعة الحرارية فقط.'; c = bad; } else t = 'الفواتير تُطبع على: ' + n + ' (حرارية فقط، لا تُرسل أبداً إلى A4).'; }
+    else { const r = Printer.autoPick(); if (r.dev) { t = 'تلقائي: ستُطبع الفواتير على «' + r.dev + '». التقارير والمصروفات والمشتريات على A4 فقط.'; c = ok; } else if (r.win) { t = '⚠ لم تُكتشف طابعة حرارية بين الطابعات المثبتة — اختر «طابعة الفواتير» يدوياً.'; c = bad; } else t = 'ستُستخدم طابعة ويندوز الوحيدة المثبتة. اختر الطابعة الحرارية يدوياً للتأكد.'; }
+    el.style.color = c; el.textContent = t;
+  },
   v(k, val) { S()[k] = val; if (k === 'nextInvoice') { S().nextInvoice = Math.max(1, parseInt(val) || 1); S().invoiceResetAt = Date.now(); } Store.save(); if (['name', 'logo'].includes(k)) App.brand(); if (['silentPrint', 'decimals', 'currency'].includes(k)) App.refresh(); if (k === 'useMaterials') App.renderNav(); if (k === 'deliveryFeeTo' && window.POS && POS.cur && POS.renderOrder) try { POS.renderOrder(); } catch (e) {} toast('تم الحفظ', 'success'); },
   async logo(inp) { const f = inp.files[0]; if (!f) return; S().logo = await resizeImage(await readFileAs(f, 'url'), 300); Store.save(); App.brand(); App.refresh(); },
   async addTables() {
@@ -2877,6 +2889,25 @@ const Cfg = {
    Printing: customer receipt, kitchen ticket, shift & sales reports
    ===================================================================== */
 const Printer = {
+  /* الفواتير على الطابعة الحرارية فقط (لا تُرسل أبداً إلى طابعة A4). عند «تلقائي» نختار أول طابعة حرارية من أسماء الطابعات المثبتة */
+  _pl: null,
+  thermalRx: /pos[\s_-]?\d|thermal|receipt|xprinter|x-printer|\bxp[\s_-]?\d|\btm[\s_-]?[tum]\d|\brp[\s_-]?\d|\bgp[\s_-]?\d|gprinter|rongta|munbyn|bixolon|citizen|star\s?(tsp|mc)|sam4s|zjiang|hprt|sewoo|snbc|pos|58\s?mm|80\s?mm|58\s?(i|ii|iii)\b|80\s?(i|ii|iii)\b|text only/i,
+  a4Rx: /laserjet|officejet|deskjet|pagewide|inkjet|laser|mfp|workcentre|ecotank|\bl\d{3,4}\b|pdf|xps|onenote|fax|a4/i,
+  isThermalName(n) { return this.thermalRx.test(n || '') && !/pdf|xps|onenote|fax/i.test(n || ''); },
+  isA4Name(n) { return this.a4Rx.test(n || '') && !this.thermalRx.test(n || ''); },
+  loadList() {
+    if (!(PRN() && PRN().printers)) return Promise.resolve([]);
+    return PRN().printers().then(l => { this._pl = (l || []).map(x => typeof x === 'string' ? { name: x } : x); return this._pl; }).catch(() => []);
+  },
+  // اختيار طابعة الفواتير تلقائياً: أول طابعة حرارية؛ وإن لم توجد وكانت هناك عدة طابعات نفتح نافذة الطباعة بدل الإرسال الصامت إلى طابعة قد تكون A4
+  autoPick() {
+    const l = this._pl;
+    if (!l || !l.length) return { dev: '', win: false };
+    const t = l.find(p => this.isThermalName(p.displayName || p.name)) || l.find(p => this.isThermalName(p.name));
+    if (t) return { dev: t.name, win: false };
+    if (l.length === 1) return { dev: '', win: false };
+    return { dev: '', win: true };
+  },
   css(paper) {
     const w = '100%'; // A4: الهوامش تأتي من @page (12mm) — 190mm مع الهوامش كان يقص طرف الصفحة
     return `@page{size:${paper === 210 ? 'A4' : paper + 'mm auto'};margin:${paper === 210 ? '12mm' : '0'}}
@@ -2896,7 +2927,7 @@ const Printer = {
     const s = S(), paper = pp || (s.paper === 58 ? 58 : 80); // الإيصالات وتذاكر المطبخ وتقرير الوردية حرارية دائماً
     copies = Math.max(1, Math.min(5, parseInt(copies) || 1));
     // طابعة مضبوطة على «بلا»: لا طباعة
-    const target = device !== null ? device : kitchen ? (s.kitchenPrinter || s.printerName || '') : paper === 210 ? (s.a4Printer || s.printerName || '') : (s.printerName || '');
+    const target = device !== null ? device : kitchen ? (s.kitchenPrinter || s.printerName || '') : paper === 210 ? (s.a4Printer || '') : (s.printerName || '');
     if (target === '-') { toast(kitchen ? 'لا توجد طابعة مطبخ (مضبوطة على «بلا» في الإعدادات)' : paper === 210 ? 'لا توجد طابعة A4 (مضبوطة على «بلا» في الإعدادات)' : 'لا توجد طابعة فواتير (مضبوطة على «بلا» في الإعدادات)', 'info'); return; }
     const dialog = () => {
       const html = this.doc(Array.from({ length: copies }, () => `<div class="page">${body}</div>`).join(''), paper);
@@ -2915,9 +2946,13 @@ const Printer = {
       Printer._q = (Printer._q || Promise.resolve()).then(job, job);
     };
     // ورق A4 بدون طابعة A4 محددة: نافذة الطباعة (حتى لا يُرسل A4 إلى الطابعة الحرارية)
-    if (PRN() && (s.silentPrint || forceDirect) && !(paper === 210 && !s.a4Printer && device === null)) {
+    let devName = device !== null ? device : ((kitchen && s.kitchenPrinter) || (paper === 210 ? s.a4Printer : s.printerName) || '');
+    let forceWin = false;
+    if (device === null && !devName && paper !== 210) { const r = this.autoPick(); devName = r.dev; forceWin = r.win; }
+    if (forceWin && (s.silentPrint || forceDirect)) { if (!this._warned) { this._warned = true; toast('لم تُكتشف طابعة حرارية — اختر «طابعة الفواتير» من الإعدادات. فُتحت نافذة الطباعة حتى لا تخرج الفاتورة على ورق A4', 'error'); } }
+    if (PRN() && (s.silentPrint || forceDirect) && !forceWin && !(paper === 210 && !s.a4Printer && device === null)) {
       const html = this.doc(body, paper);
-      PRN().print(html, { silent: true, deviceName: device !== null ? device : ((kitchen && s.kitchenPrinter) || (paper === 210 && s.a4Printer) || s.printerName || ''), copies, paper })
+      PRN().print(html, { silent: true, deviceName: devName, copies, paper })
         .then(r => { if (r && r.ok === false) toast('تعذرت الطباعة المباشرة: ' + (r.error || 'تحقق من الطابعة') + ' — راجع اسم الطابعة في الإعدادات', 'error'); })
         .catch(e => toast('تعذرت الطباعة المباشرة: ' + ((e && e.message) || e || 'خطأ غير معروف'), 'error'));
       return;
