@@ -131,13 +131,21 @@ function global:Get-LanAddresses {
     } catch {}
     return @($real + $virt)
 }
-function global:Ensure-Firewall([int]$Port) {
-    # قاعدة جدار الحماية للمنفذ (تحتاج صلاحية مدير: تظهر نافذة UAC مرة واحدة)
+function global:Ensure-Firewall([int]$Port, [bool]$Force = $false) {
+    # قاعدة جدار الحماية للمنفذ. المثبّت ينشئ «Dalala Restaurant <المنفذ>» للمنفذ الافتراضي؛ وإن لم توجد أي قاعدة
+    # نطلب صلاحية المدير (UAC) مرة واحدة فقط لكل منفذ، ويُتذكَّر الرفض فلا تعود النافذة عند كل تشغيل.
+    # يُمرَّر $Force عند تغيير إعدادات الشبكة لطلبها من جديد.
     try {
+        $netsh = "$env:SystemRoot\System32\netsh.exe"
+        foreach ($n in @(('Dalala Restaurant LAN ' + $Port), ('Dalala Restaurant ' + $Port))) {
+            & $netsh advfirewall firewall show rule name="$n" | Out-Null
+            if ($LASTEXITCODE -eq 0) { return }
+        }
+        $mark = Join-Path $global:DataDir ('fw-asked-' + $Port)
+        if (-not $Force -and (Test-Path -LiteralPath $mark)) { return }
+        try { [IO.File]::WriteAllText($mark, (Get-Date).ToString('s')) } catch {}
         $rule = 'Dalala Restaurant LAN ' + $Port
-        & "$env:SystemRoot\System32\netsh.exe" advfirewall firewall show rule name="$rule" | Out-Null
-        if ($LASTEXITCODE -eq 0) { return }
-        Start-Process -FilePath "$env:SystemRoot\System32\netsh.exe" -ArgumentList @('advfirewall', 'firewall', 'add', 'rule', "name=$rule", 'dir=in', 'action=allow', 'protocol=TCP', "localport=$Port", 'profile=any') -Verb RunAs -WindowStyle Hidden -Wait | Out-Null
+        Start-Process -FilePath $netsh -ArgumentList @('advfirewall', 'firewall', 'add', 'rule', "name=$rule", 'dir=in', 'action=allow', 'protocol=TCP', "localport=$Port", 'profile=any') -Verb RunAs -WindowStyle Hidden -Wait | Out-Null
     } catch {}
 }
 function global:Start-Servers($Net) {
@@ -369,7 +377,7 @@ function global:Invoke-HostCall([string]$Method, $Arg) {
             $port = 47630; try { $port = [Math]::Min(65000, [Math]::Max(1024, [int]$Arg['port'])) } catch {}
             $next = @{ mode = $mode; port = $port; host = ([string]$Arg['host']).Trim(); key = $(if ($mode -eq 'client') { ([string]$Arg['key']).Trim().ToUpper() } else { [string]$cur.key }) }
             Save-NetConfig $next
-            if ($mode -eq 'host') { Ensure-Firewall $port }
+            if ($mode -eq 'host') { Ensure-Firewall $port $true }
             $global:RelaunchRequested = $true
             $global:MainForm.BeginInvoke([Action]{ $global:MainForm.Close() }) | Out-Null
             return $true

@@ -38,14 +38,22 @@ function lanAddresses() {
   }
   return [...real, ...virt];
 }
-// Windows firewall rule for the shared-database port (asks for admin rights once — UAC)
-function ensureFirewall(port) {
+// Windows firewall rule for the shared-database port.
+// The installer already creates "Dalala Restaurant <port>" for the default port; if neither rule exists we ask for
+// admin rights (UAC) ONCE per port — a "no" answer is remembered so the prompt does not return on every start.
+// Pass force=true (when the user changes the network settings) to ask again.
+function ensureFirewall(port, force) {
   if (process.platform !== 'win32') return;
   const { execFile } = require('child_process');
   const netsh = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'netsh.exe');
-  const rule = 'Dalala Restaurant LAN ' + port;
-  execFile(netsh, ['advfirewall', 'firewall', 'show', 'rule', 'name=' + rule], { windowsHide: true }, err => {
-    if (!err) return; // already there
+  const names = ['Dalala Restaurant LAN ' + port, 'Dalala Restaurant ' + port];
+  const has = name => new Promise(res => execFile(netsh, ['advfirewall', 'firewall', 'show', 'rule', 'name=' + name], { windowsHide: true }, err => res(!err)));
+  const mark = path.join(app.getPath('userData'), 'fw-asked-' + port);
+  Promise.all(names.map(has)).then(r => {
+    if (r.some(Boolean)) return; // a rule already exists
+    if (!force && fs.existsSync(mark)) return; // already asked once on this device
+    try { fs.writeFileSync(mark, new Date().toISOString()); } catch (e) { /* ignore */ }
+    const rule = names[0];
     const args = `'advfirewall','firewall','add','rule','name=${rule}','dir=in','action=allow','protocol=TCP','localport=${port}','profile=any'`;
     execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-Command', `Start-Process -FilePath '${netsh}' -ArgumentList ${args} -Verb RunAs -WindowStyle Hidden -Wait`], { windowsHide: true }, () => {});
   });
@@ -74,7 +82,7 @@ ipcMain.handle('net:test', (_e, { host, port, key }) => ping(String(host || '').
 ipcMain.handle('net:set', (_e, cfg) => {
   const next = { ...NET_DEFAULT, ...NET, mode: ['local', 'host', 'client'].includes(cfg.mode) ? cfg.mode : 'local', port: Math.min(65000, Math.max(1024, +cfg.port || NET_DEFAULT.port)), host: String(cfg.host || '').trim(), key: cfg.mode === 'client' ? String(cfg.key || '').trim().toUpperCase() : (NET.key || '') };
   fs.writeFileSync(netFile(), JSON.stringify(next, null, 1));
-  if (next.mode === 'host') ensureFirewall(next.port);
+  if (next.mode === 'host') ensureFirewall(next.port, true);
   setTimeout(() => { app.relaunch(); app.exit(0); }, 300);
   return true;
 });
