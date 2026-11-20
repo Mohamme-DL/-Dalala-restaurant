@@ -96,6 +96,7 @@ body.kbd-top #kbd{top:0;bottom:auto;border-top:0;border-bottom:1px solid #334155
         <div id="hdrTime" class="num font-bold text-slate-200 text-sm leading-none">--:--</div>
         <div id="hdrDate" class="num text-[10px] text-slate-400"></div>
       </div>
+      <button id="kbdPrefBtn" onclick="Kbd.prefDialog()" title="إعداد لوحة المفاتيح على الشاشة (لحسابي)" class="w-9 h-9 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-400"><i class="fa-solid fa-hand-pointer"></i></button>
       <button id="kbdBtn" onclick="Kbd.toggle()" title="لوحة المفاتيح على الشاشة (إظهار / إخفاء)" class="hidden w-9 h-9 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300"><i class="fa-solid fa-keyboard"></i></button>
       <button onclick="App.toggleFullscreen()" title="ملء الشاشة" class="w-9 h-9 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300"><i class="fa-solid fa-expand"></i></button>
       <button id="themeBtn" onclick="Theme.toggle()" title="الوضع الليلي / الفاتح" class="w-9 h-9 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-300"><i class="fa-solid fa-sun"></i></button>
@@ -594,6 +595,7 @@ const App = {
   lock() {
     if (Modal.isOpen) Modal.closeAll();
     logAct('تسجيل خروج');
+    try { Kbd.hide(); } catch (e) {}
     this.user = null; Store.saveNow(); Backup.auto();
     $('#app').classList.add('hidden');
     $('#loginScreen').classList.remove('hidden');
@@ -2755,7 +2757,7 @@ const Theme = {
   panel() {
     const c = this.get(), modes = [['dark', 'ليلي', 'fa-moon'], ['light', 'فاتح', 'fa-sun'], ['auto', 'تلقائي', 'fa-circle-half-stroke']];
     const zsel = `<div class="mb-4"><div class="text-xs text-slate-400 mb-2">حجم الواجهة (لهذا الجهاز) — أو اضغط Ctrl و + / −</div><div class="flex items-center gap-2"><select class="inp w-48" onchange="Theme.set({zoom:this.value})"><option value="auto" ${c.zoom === 'auto' ? 'selected' : ''}>تلقائي (حسب الشاشة)</option>${this.ZOOMS.map(z => `<option value="${z}" ${String(c.zoom) === String(z) ? 'selected' : ''}>${z}%</option>`).join('')}</select><button class="btn-ghost text-xs" onclick="Theme.step(-1)" title="تصغير">−</button><button class="btn-ghost text-xs" onclick="Theme.step(1)" title="تكبير">+</button><button class="btn-ghost text-xs" onclick="Theme.step(0)">100%</button></div></div>`;
-    const kbdRow = `<label class="flex items-center justify-between gap-3 py-2.5 mb-4 border-b border-slate-800 cursor-pointer"><span><span class="text-sm"><i class="fa-solid fa-keyboard text-sky-400"></i> جهاز لمس: لوحة المفاتيح على الشاشة (لهذا الجهاز)</span><span class="block text-[11px] text-slate-500">لأجهزة الكاشير التي تعمل باللمس بدون كيبورد. مُطفأة افتراضياً — اللابتوب والأجهزة التي فيها كيبورد لا تتأثر. عند التفعيل تظهر عند لمس أي خانة كتابة، ويظهر زرها في الشريط العلوي.</span></span><input type="checkbox" class="w-5 h-5 accent-sky-500 shrink-0" ${c.kbd ? 'checked' : ''} onchange="Kbd.setOn(this.checked)"></label>`;
+    const kbdRow = `<label class="flex items-center justify-between gap-3 py-2.5 mb-4 border-b border-slate-800 cursor-pointer"><span><span class="text-sm"><i class="fa-solid fa-keyboard text-sky-400"></i> جهاز لمس: لوحة المفاتيح على الشاشة (لحسابي فقط)</span><span class="block text-[11px] text-slate-500">لأجهزة الكاشير التي تعمل باللمس بدون كيبورد. مُطفأة افتراضياً — اللابتوب والأجهزة التي فيها كيبورد لا تتأثر. عند التفعيل تظهر عند لمس أي خانة كتابة، ويظهر زرها في الشريط العلوي.</span></span><input type="checkbox" class="w-5 h-5 accent-sky-500 shrink-0" ${Kbd.on() ? 'checked' : ''} onchange="Kbd.setOn(this.checked)"></label>`;
     return kbdRow + zsel + `<div class="mb-4"><div class="text-xs text-slate-400 mb-2">وضع الواجهة (لهذا الجهاز)</div><div class="flex gap-2">${modes.map(m => `<button class="chip ${c.mode === m[0] ? 'bg-sky-500/20 text-sky-300 border-sky-500/40' : 'bg-slate-800 border-slate-700 text-slate-300'} px-3 py-2 text-xs" onclick="Theme.set({mode:'${m[0]}'})"><i class="fa-solid ${m[2]}"></i> ${m[1]}</button>`).join('')}</div></div>
       <div class="mb-4"><div class="text-xs text-slate-400 mb-2">لون الواجهة</div><div class="flex flex-wrap items-center gap-2">${this.PRESETS.map(p => `<button title="${p[1]}" onclick="Theme.set({accent:'${p[0]}'})" class="w-8 h-8 rounded-full border-2 ${c.accent.toLowerCase() === p[0] ? 'border-white' : 'border-transparent'}" style="background:${p[0]}"></button>`).join('')}<label class="text-xs text-slate-400 flex items-center gap-1.5 mr-2">لون آخر <input type="color" value="${c.accent}" onchange="Theme.set({accent:this.value})" class="w-8 h-8 bg-transparent border-0 p-0 cursor-pointer"></label></div></div>`;
   }
@@ -2768,7 +2770,8 @@ const Kbd = {
     ar2: [['أ','إ','آ','ء','ؤ','ئ','ة','ى','ـ','"','(',')'], ['!','؟','،','؛',':','/','-','+','*','=','%'], ['@','#','&','_','<','>','[',']',"'",'~','$']],
     en: [['q','w','e','r','t','y','u','i','o','p'], ['a','s','d','f','g','h','j','k','l'], ['z','x','c','v','b','n','m',',','.']]
   },
-  on() { return !!Theme.get().kbd; },
+  // مرتبطة بحساب المستخدم: كل مستخدم يفعّلها لنفسه فقط. (إعداد الجهاز القديم يبقى مفعّلاً لمن لم يختر بعد، حتى لا تختفي اللوحة بعد التحديث)
+  on() { const u = App.user; if (!u) return false; return u.kbd === undefined ? !!Theme.get().kbd : !!u.kbd; },
   isText(el) { if (!el || el.disabled || el.readOnly) return false; if (el.tagName === 'TEXTAREA') return true; if (el.tagName !== 'INPUT') return false; const t = (el.getAttribute('type') || 'text').toLowerCase(); return ['text', 'search', 'number', 'password', 'tel', 'email'].includes(t); },
   dest() { const a = document.activeElement; if (this.isText(a)) return a; if (this.target && document.body.contains(this.target) && this.isText(this.target)) return this.target; return null; },
   fire(t, ty) { t.dispatchEvent(new Event(ty, { bubbles: true })); },
@@ -2805,7 +2808,12 @@ const Kbd = {
     const app = document.getElementById('app'); if (app) { app.style.marginTop = ''; app.style.height = ''; } Theme.fit(); this.btn(); },
   toggle() { if (this.el) this.hide(); else this.show(document.activeElement); },
   btn() { const b = document.getElementById('kbdBtn'); if (!b) return; b.classList.toggle('hidden', !this.on()); b.classList.toggle('kbd-btn-on', !!this.el); },
-  setOn(v) { Theme.save(Object.assign(Theme.get(), { kbd: !!v })); if (!v) this.hide(); this.btn(); toast(v ? 'تم تفعيل لوحة المفاتيح على الشاشة لهذا الجهاز' : 'تم إيقاف لوحة المفاتيح على الشاشة لهذا الجهاز', 'success'); }
+  setOn(v) { const u = App.user && DB.users.find(x => x.id === App.user.id); if (!u) return; u.kbd = !!v; App.user.kbd = !!v; Store.save(); if (!v) this.hide(); this.btn(); toast(v ? 'تم تفعيل لوحة المفاتيح على الشاشة لحسابك فقط' : 'تم إيقاف لوحة المفاتيح على الشاشة لحسابك', 'success'); },
+  prefDialog() {
+    const w = Modal.open(`<label class="flex items-center justify-between gap-3 cursor-pointer"><span><span class="text-sm font-bold"><i class="fa-solid fa-keyboard text-sky-400"></i> لوحة المفاتيح على الشاشة (لحسابي فقط)</span><span class="block text-[11px] text-slate-500 mt-1">لأجهزة اللمس بدون كيبورد. تظهر عند لمس أي خانة كتابة، وتخص حسابك أنت فقط ولا تؤثر على بقية المستخدمين.</span></span><input type="checkbox" data-k class="w-5 h-5 accent-sky-500 shrink-0" ${this.on() ? 'checked' : ''}></label>
+      <div class="flex justify-end mt-4"><button class="btn-primary" data-close>تم</button></div>`, { title: 'لوحة المفاتيح', icon: 'fa-keyboard', size: 'max-w-md' });
+    $('[data-k]', w).onchange = e => this.setOn(e.target.checked);
+  }
 };
 // تظهر عند لمس خانة كتابة فقط (لا عند التركيز التلقائي مثل خانة البحث في الكاشير)، وتختفي عند لمس مكان آخر
 document.addEventListener('pointerdown', e => { if (!Kbd.on()) return; const t = e.target; if (Kbd.el && Kbd.el.contains(t)) return; if (t && t.closest && t.closest('#kbdBtn')) return;
