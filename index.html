@@ -32,6 +32,15 @@ body.kbd-open .modal-wrap .modal-box{max-height:calc(100% - 16px)}
 body.kbd-open.kbd-top .modal-wrap{top:var(--kbdh);bottom:0}
 #kbd{position:fixed;left:0;right:0;bottom:0;z-index:90;background:#0b1220;border-top:1px solid #334155;padding:6px 8px 8px;display:flex;flex-direction:column;gap:5px;direction:ltr;box-shadow:0 -6px 22px rgba(0,0,0,.35)}
 body.kbd-top #kbd{top:0;bottom:auto;border-top:0;border-bottom:1px solid #334155}
+/* شاشة البيع: القائمة الجانبية مخفية (تظهر بزر ☰) والتخطيط ثابت على كل الأحجام */
+#navBtn,#navShade{display:none}
+@media (min-width:768px){
+  body.pos-fs #navBtn{display:inline-flex}
+  body.pos-fs #sidebar{position:fixed;top:var(--hdrh,58px);bottom:0;right:0;z-index:60;transform:translateX(105%);visibility:hidden;transition:transform .18s;box-shadow:-8px 0 24px rgba(0,0,0,.4)}
+  body.pos-fs.nav-open #sidebar{transform:none;visibility:visible}
+  body.pos-fs.nav-open #navShade{display:block;position:fixed;left:0;right:0;bottom:0;top:var(--hdrh,58px);z-index:55;background:rgba(0,0,0,.35)}
+}
+@media (min-width:768px) and (max-width:1023px){[data-view=pos]>div:first-child{grid-column:span 7/span 7}#orderPanel{grid-column:span 5/span 5}}
 #kbd .kr{display:flex;gap:5px;justify-content:center}
 #kbd .kk{flex:1 1 0;max-width:86px;min-width:0;height:clamp(40px,6.4vh,58px);border-radius:10px;border:1px solid #334155;background:#1e293b;color:#f1f5f9;font-weight:800;font-size:clamp(15px,2.3vh,21px);cursor:pointer;touch-action:manipulation;box-shadow:0 2px 0 rgba(0,0,0,.35)}
 #kbd .kk:active{transform:translateY(1px);background:rgb(var(--ac-500));color:#fff}
@@ -74,6 +83,7 @@ body.kbd-top #kbd{top:0;bottom:auto;border-top:0;border-bottom:1px solid #334155
 <div id="app" class="hidden h-screen flex flex-col">
   <header class="glass-panel border-b border-slate-700/50 px-4 py-2 flex items-center justify-between gap-3 z-20 shrink-0">
     <div class="flex items-center gap-3 min-w-0">
+      <button id="navBtn" onclick="App.toggleNav()" title="الأقسام (الفواتير والتقارير والمصروفات وغيرها)" class="w-9 h-9 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 items-center justify-center shrink-0"><i class="fa-solid fa-bars"></i></button>
       <div id="brandLogo" class="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-sky-500/20 shrink-0 overflow-hidden">
         <i class="fa-solid fa-utensils text-white text-xl"></i>
       </div>
@@ -106,6 +116,7 @@ body.kbd-top #kbd{top:0;bottom:auto;border-top:0;border-bottom:1px solid #334155
 
   <div class="flex-1 flex overflow-hidden">
     <!-- Sidebar -->
+    <div id="navShade" onclick="App.toggleNav()"></div>
     <nav id="sidebar" class="w-20 shrink-0 glass-panel border-l border-slate-700/50 p-2 flex flex-col gap-1 overflow-y-auto no-scrollbar"></nav>
 
     <!-- Views -->
@@ -705,11 +716,14 @@ const App = {
     if (n && n.mat && !useMat()) id = 'pos';
     if (n && ((n.admin && !this.isAdmin()) || (n.perm && !Perm.can(n.perm)))) return toast('لا تملك صلاحية الوصول', 'error');
     this.view = id;
+    document.body.classList.toggle('pos-fs', id === 'pos'); document.body.classList.remove('nav-open'); this.hdrH(); Theme.fit();
     $$('.view').forEach(v => v.classList.toggle('hidden', v.dataset.view !== id));
     $('#cartFab').classList.toggle('on-pos', id === 'pos'); if (id !== 'pos') POS.toggleCart(false);
     this.renderNav();
     this.refresh();
   },
+  toggleNav() { document.body.classList.toggle('nav-open'); },
+  hdrH() { const h = document.querySelector('#app > header'); if (h && h.offsetHeight) document.documentElement.style.setProperty('--hdrh', h.offsetHeight + 'px'); },
   refresh() {
     if (this.view === 'pos') POS.render();
     else if (VIEWS[this.view]) VIEWS[this.view]($(`[data-view="${this.view}"]`));
@@ -2774,7 +2788,7 @@ th.n,td.n{text-align:center}tfoot td{background:#e2e8f0!important;font-weight:80
 const docsBtn = (fn) => `<button class="btn-ghost text-xs" onclick="Docs.menu(()=>Docs.${fn}())"><i class="fa-solid fa-print"></i> طباعة / تصدير</button>`;
 
 const Theme = {
-  KEY: 'dalala_ui', DEF: { mode: 'dark', accent: '#0ea5e9', zoom: '100' }, ZOOMS: [75, 85, 90, 100, 110, 125, 150, 175],
+  KEY: 'dalala_ui', DEF: { mode: 'dark', accent: '#0ea5e9', zoom: 'auto' }, ZOOMS: [75, 85, 90, 100, 110, 125, 150, 175],
   PRESETS: [['#0ea5e9', 'أزرق'], ['#f97316', 'برتقالي'], ['#10b981', 'أخضر'], ['#8b5cf6', 'بنفسجي'], ['#f43f5e', 'وردي'], ['#f59e0b', 'عنبري'], ['#14b8a6', 'تركوازي'], ['#6366f1', 'نيلي']],
   get() { try { return Object.assign({}, this.DEF, JSON.parse(localStorage.getItem(this.KEY) || '{}')); } catch (e) { return Object.assign({}, this.DEF); } },
   save(o) { try { localStorage.setItem(this.KEY, JSON.stringify(o)); } catch (e) {} },
@@ -2796,9 +2810,9 @@ const Theme = {
   /** تكبير/تصغير الواجهة (لهذا الجهاز): تلقائي حسب الشاشة أو نسبة ثابتة */
   fit() {
     const b = document.body; if (!b) return;
-    const pref = String(this.get().zoom || '100'), w = window.innerWidth, h = window.innerHeight;
+    const pref = String(this.get().zoom || 'auto'), w = window.innerWidth, h = window.innerHeight;
     let z = 1;
-    if (pref === 'auto') { z = Math.min(w / 1440, h / 780); z = Math.max(.72, Math.min(1.5, z)); if (z > .93 && z < 1.07) z = 1; }
+    if (pref === 'auto') { const pf = document.body.classList.contains('pos-fs'); z = Math.min(w / (pf ? 1180 : 1440), h / (pf ? 700 : 780)); z = Math.max(pf ? .6 : .72, Math.min(1.5, z)); if (z > .93 && z < 1.07) z = 1; }
     else if (parseFloat(pref) > 0) z = parseFloat(pref) / 100;
     z = Math.round(z * 100) / 100;
     const app = document.getElementById('app');
