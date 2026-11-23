@@ -266,13 +266,66 @@ function defaultData() {
 }
 
 /* ---------------- Storage ---------------- */
+/* Desktop app on a single computer: the data lives in a SQLite database (main process, via dalalaStore).
+   Only the records that changed are written, in one transaction, so a power cut cannot corrupt it. */
+const SQL_LOCAL = () => !!(window.dalalaStore && !(window.dalala && window.dalala.isDesktop) && !(window.dalalaNet && window.dalalaNet.config && window.dalalaNet.config.mode && window.dalalaNet.config.mode !== 'local'));
+const SQL_NEWEST_FIRST = ['log', 'purchases', 'tickets']; // lists the app keeps newest-first (stored oldest-first)
+let sqlBase = null;
+const isRecList = v => Array.isArray(v) && v.length > 0 && v.every(r => r && typeof r === 'object' && !Array.isArray(r));
+function sqlPrep(d) { for (const v of Object.values(d)) if (isRecList(v)) for (const r of v) if (r.id === undefined || r.id === null || r.id === '') r.id = uid(); }
+function sqlSnap(d) {
+  const b = {};
+  for (const [k, v] of Object.entries(d || {})) {
+    if (k === 'version') continue;
+    if (isRecList(v)) b[k] = new Map(v.map(r => [String(r.id), JSON.stringify(r)]));
+    else if (Array.isArray(v)) b[k] = JSON.stringify(v);
+    else if (v && typeof v === 'object') b[k] = new Map(Object.entries(v).map(([kk, vv]) => [kk, JSON.stringify(vv)]));
+  }
+  return b;
+}
+function sqlDiff(d) {
+  const ops = []; sqlPrep(d);
+  for (const [k, v] of Object.entries(d)) {
+    if (k === 'version') continue;
+    const old = sqlBase && sqlBase[k];
+    if (isRecList(v) || (Array.isArray(v) && !v.length && old instanceof Map)) {
+      const om = old instanceof Map ? old : new Map(); const put = [], seen = new Set();
+      for (const r of v) { const id = String(r.id); seen.add(id); const s = JSON.stringify(r); if (om.get(id) !== s) put.push(JSON.parse(s)); }
+      const del = [...om.keys()].filter(id => !seen.has(id));
+      if (put.length || del.length) ops.push({ col: k, put, del });
+    } else if (Array.isArray(v)) { const s = JSON.stringify(v); if (old !== s) ops.push({ obj: k, value: v }); }
+    else if (v && typeof v === 'object') {
+      const om = old instanceof Map ? old : new Map(); const patch = {}, keys = new Set();
+      for (const [kk, vv] of Object.entries(v)) { keys.add(kk); const s = JSON.stringify(vv); if (s !== undefined && om.get(kk) !== s) patch[kk] = JSON.parse(s); }
+      const unset = [...om.keys()].filter(kk => !keys.has(kk));
+      if (Object.keys(patch).length || unset.length) ops.push({ obj: k, patch, unset });
+    }
+  }
+  return ops;
+}
+
 const Store = {
   data: null, _t: null,
   isDesktop: !!(window.dalala && window.dalala.isDesktop),
   load() {
     let raw = null;
+    if (SQL_LOCAL()) {
+      let r = null; try { r = window.dalalaStore.load(); } catch (e) { r = null; }
+      if (r && r.error) { console.error(r.error); r = null; }
+      if (r && r.data && r.data.settings) { this.data = r.data; for (const k of SQL_NEWEST_FIRST) if (Array.isArray(this.data[k])) this.data[k].reverse(); }
+      else { // first start with SQLite: bring this computer's previous (browser-storage) data along
+        try { const old = localStorage.getItem('dalala_pos_v1'); if (old) this.data = JSON.parse(old); } catch (e) { this.data = null; }
+        if (!this.data || !this.data.settings) this.data = defaultData();
+        sqlPrep(this.data); sqlBase = null;
+        const keep = (() => { try { return localStorage.getItem('dalala_pos_v1') || ''; } catch (e) { return ''; } })();
+        const flip = {}; for (const k of SQL_NEWEST_FIRST) if (Array.isArray(this.data[k])) flip[k] = this.data[k].slice().reverse();
+        if (window.dalalaStore.replace(Object.assign({}, this.data, flip)) === true) { try { if (keep) { localStorage.setItem('dalala_pos_v1_migrated', keep); } localStorage.removeItem('dalala_pos_v1'); } catch (e) { /* keep the old copy */ } }
+      }
+      sqlBase = sqlSnap(this.data);
+    } else {
     try { raw = this.isDesktop ? window.dalala.load() : localStorage.getItem('dalala_pos_v1'); } catch (e) { console.error(e); }
     if (raw) { try { this.data = JSON.parse(raw); } catch (e) { console.error('bad data', e); } }
+    }
     if (!this.data || !this.data.settings) { this.data = defaultData(); this.saveNow(); }
     // migrate / fill missing keys
     const d = defaultData();
@@ -284,6 +337,14 @@ const Store = {
   save() { clearTimeout(this._t); this._t = setTimeout(() => this.saveNow(), 250); },
   saveNow() {
     clearTimeout(this._t);
+    if (SQL_LOCAL()) {
+      try {
+        const ops = sqlDiff(this.data); if (!ops.length) return;
+        const r = window.dalalaStore.commit(ops);
+        if (r === true) sqlBase = sqlSnap(this.data); else { console.error(r); toast('تعذر حفظ البيانات على القرص!', 'error'); }
+      } catch (e) { console.error(e); toast('تعذر حفظ البيانات على القرص!', 'error'); }
+      return;
+    }
     const json = JSON.stringify(this.data);
     try {
       if (this.isDesktop) { if (window.dalala.save(json) === false) toast('تعذر حفظ البيانات على القرص!', 'error'); }

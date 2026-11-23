@@ -145,6 +145,12 @@ ipcMain.on('lic:status', e => {
 });
 
 /* printing: list printers, print the current page silently on a chosen printer */
+/* single-computer ("local") mode: the data lives in a SQLite database in the user's data folder */
+let localStore = null, localVersion = 0;
+const lstore = () => { if (!localStore) { localStore = require('./dbstore').open(path.join(app.getPath('userData'), 'local', 'dalala.db')); localVersion = localStore.load().version || 0; } return localStore; };
+ipcMain.on('store:load', e => { if (!win || e.sender !== win.webContents) { e.returnValue = null; return; } try { e.returnValue = lstore().load(); } catch (err) { e.returnValue = { error: String(err.message || err) }; } });
+ipcMain.on('store:commit', (e, changes) => { if (!win || e.sender !== win.webContents) { e.returnValue = false; return; } try { lstore().commit(Array.isArray(changes) ? changes : [], ++localVersion); e.returnValue = true; } catch (err) { e.returnValue = String(err.message || err); } });
+ipcMain.on('store:replace', (e, data) => { if (!win || e.sender !== win.webContents) { e.returnValue = false; return; } try { lstore().replaceAll(data || {}, ++localVersion); e.returnValue = true; } catch (err) { e.returnValue = String(err.message || err); } });
 const fromMain = e => win && e.sender === win.webContents;
 ipcMain.handle('print:list', async e => { if (!fromMain(e)) return []; try { return (await e.sender.getPrintersAsync()).map(p => ({ name: p.name, displayName: p.displayName, isDefault: !!p.isDefault })); } catch (err) { return []; } });
 ipcMain.handle('print:run', (e, o = {}) => new Promise(resolve => {
@@ -199,5 +205,5 @@ app.whenReady().then(async () => {
   state = lic.check(app.getPath('userData'));
   if (state.ok) createMain(); else createActivation();
 });
-app.on('before-quit', () => { if (server) server.flush(); }); // write the shared database to disk before closing
+app.on('before-quit', () => { if (server) server.flush(); if (localStore) { try { localStore.backupTo(path.join(app.getPath('userData'), 'local', 'backups', 'local-' + new Date().toISOString().slice(0, 10) + '.db')); const bd = path.join(app.getPath('userData'), 'local', 'backups'); fs.readdirSync(bd).filter(f => /^local-.*\.db$/.test(f)).sort().slice(0, -30).forEach(f => fs.rmSync(path.join(bd, f), { force: true })); } catch (e) { /* ignore */ } try { localStore.close(); } catch (e) { /* ignore */ } } }); // write the shared database to disk before closing
 app.on('window-all-closed', () => { if (server) server.close(); app.quit(); });
