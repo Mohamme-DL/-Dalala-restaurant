@@ -2485,10 +2485,11 @@ VIEWS.settings = (el) => {
       ${inp('lowStockAlert', 'تنبيه انخفاض المخزون عند', 'number')}
     </div>
     <div class="card p-5"><h3 class="font-bold mb-4"><i class="fa-solid fa-print text-indigo-400"></i> الطباعة</h3>
-      <div class="grid sm:grid-cols-3 gap-3 mb-2"><div><label class="lbl">عرض ورق الفاتورة</label><select class="inp" onchange="Cfg.v('paper',+this.value)">${[[80, '80 مم (حراري)'], [58, '58 مم (حراري صغير)']].map(([v, t]) => `<option value="${v}" ${s.paper === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
-        ${inp('receiptCopies', 'نسخ فاتورة الزبون', 'number', 'min="1" max="5"')}${inp('kitchenCopies', 'نسخ تذكرة المطبخ', 'number', 'min="1" max="5"')}</div>
+      <div class="grid sm:grid-cols-3 gap-3 mb-2"><div><label class="lbl">عرض ورق الفاتورة</label><select class="inp" onchange="Cfg.v('paper',+this.value)">${[[80, '80 مم (حراري)'], [58, '58 مم (حراري صغير)']].map(([v, t]) => `<option value="${v}" ${s.paper === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div></div>
       ${sw('autoPrint', 'طباعة الفاتورة تلقائياً بعد الدفع')}
+      <div class="grid sm:grid-cols-3 gap-3 my-2">${inp('receiptCopies', 'عدد نسخ فاتورة البيع (الزبون/البائع) — مستقل عن المطبخ', 'number', 'min="1" max="5"')}</div>
       ${sw('kitchenPrint', isQuick() ? 'طباعة تذكرة تحضير (للباريستا) مع كل بيع' : 'طباعة تذكرة المطبخ عند الحفظ/الإرسال')}
+      <div class="grid sm:grid-cols-3 gap-3 my-2">${inp('kitchenCopies', 'عدد نسخ تذكرة المطبخ — مستقل عن فاتورة البيع', 'number', 'min="1" max="5"')}</div>
       ${PRN() ? `${sw('silentPrint', 'طباعة مباشرة بدون نافذة (صامتة)', 'تُطبع مباشرة بلا أي نافذة على الطابعة المحددة أدناه (أو طابعة ويندوز الافتراضية إن لم تُحدَّد)')}
         <div class="grid sm:grid-cols-2 gap-3 mt-3"><div><label class="lbl">طابعة الفواتير (حرارية فقط)</label><select class="inp" id="prnR" onchange="Cfg.v('printerName',this.value);Cfg.prnNote()"><option value="">تلقائي — أول طابعة حرارية</option><option value="-" ${s.printerName === '-' ? 'selected' : ''}>بلا — لا توجد طابعة</option></select></div>
         <div><label class="lbl">طابعة ورق A4 (للتقارير والمصروفات والمشتريات عند اختيار «طباعة A4»)</label><select class="inp" id="prnA4" onchange="Cfg.v('a4Printer',this.value)"><option value="">نافذة الطباعة (اختر طابعة A4 عند كل طباعة)</option><option value="-" ${s.a4Printer === '-' ? 'selected' : ''}>بلا — لا توجد طابعة</option></select></div>
