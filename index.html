@@ -390,7 +390,7 @@ function toast(msg, type = 'info') {
   ic.className = 'fa-solid text-lg ' + ({ error: 'fa-circle-exclamation text-rose-400', warning: 'fa-triangle-exclamation text-amber-400', success: 'fa-circle-check text-emerald-400' }[type] || 'fa-circle-info text-sky-400');
   el.classList.remove('translate-y-24', 'opacity-0');
   clearTimeout(_toastT);
-  _toastT = setTimeout(() => el.classList.add('translate-y-24', 'opacity-0'), 2300);
+  _toastT = setTimeout(() => el.classList.add('translate-y-24', 'opacity-0'), msg.length > 45 ? 4200 : 2300);
   if (type === 'error') beep(220, .12);
 }
 let _ac;
@@ -1316,7 +1316,7 @@ const POS = {
     const i = DB.open.findIndex(x => x.id === o.id);
     if (i >= 0) DB.open[i] = clone(o); else DB.open.push(clone(o));
     Store.save();
-    toast(isQuick() ? `تم تعليق الفاتورة — ${heldLabel(o)}` : `تم حفظ الطلب — ${orderLabel(o)}`, 'success'); this.toggleCart(false);
+    if (isQuick()) toast(`تم تعليق الفاتورة — ${heldLabel(o)} — ⚠ تنبيه: يوجد الآن ${DB.open.length} ${DB.open.length === 1 ? 'فاتورة معلّقة' : DB.open.length === 2 ? 'فاتورتان معلّقتان' : 'فواتير معلّقة'} لم تُدفع بعد`, 'warning'); else toast(`تم حفظ الطلب — ${orderLabel(o)}`, 'success'); this.toggleCart(false);
     this.cur = this.blank(o.type); this.tendered = ''; this.sel = null; this.render();
   },
   sendKitchen(o) {
