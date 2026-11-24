@@ -818,10 +818,11 @@ const Shift = {
   closeDialog() {
     const sh = this.current();
     if (!sh) return S().requireShift ? this.openDialog() : toast('لا توجد وردية مفتوحة', 'warning');
-    if (DB.open.length) toast(`تنبيه: يوجد ${DB.open.length} طلب مفتوح لم يُدفع بعد`, 'warning');
+    const nOpen = DB.open.length, openWord = isQuick() ? (nOpen === 1 ? 'فاتورة معلّقة' : nOpen === 2 ? 'فاتورتان معلّقتان' : 'فواتير معلّقة') : (nOpen === 1 ? 'طلب مفتوح' : nOpen === 2 ? 'طلبان مفتوحان' : 'طلبات مفتوحة');
     const s = this.summary(sh);
     const row = (k, v, c = '') => `<div class="flex justify-between py-1.5 border-b border-slate-800"><span class="text-slate-400">${k}</span><b class="num ${c}">${v}</b></div>`;
     const w = Modal.open(`
+      ${nOpen ? `<div class="mb-3 p-3 rounded-xl border border-amber-500/50 bg-amber-500/10 text-amber-300 text-sm font-bold"><i class="fa-solid fa-triangle-exclamation"></i> تنبيه: لديك ${nOpen > 2 ? nOpen + ' ' : ''}${openWord} لم تُدفع بعد${isQuick() ? '. ادفعها أو الغِها قبل إغلاق الوردية.' : '.'}</div>` : ''}
       <div class="text-sm mb-4">
         ${row('الكاشير', esc(sh.userName))}${row('بداية الوردية', fmtDT(sh.openAt))}
         ${row('عدد الفواتير', s.count)}${row('الفواتير الملغاة', s.voids, 'text-rose-400')}
@@ -840,7 +841,8 @@ const Shift = {
     const inp = $('[data-cash]', w);
     const upd = () => { const d = round((+inp.value || 0) - s.expected); $('[data-diff]', w).innerHTML = `الفرق: <b class="num ${d < 0 ? 'text-rose-400' : d > 0 ? 'text-amber-300' : 'text-emerald-400'}">${money(d)}</b> ${d < 0 ? '(عجز)' : d > 0 ? '(زيادة)' : '(مطابق)'}`; };
     inp.oninput = upd; upd();
-    $('[data-ok]', w).onclick = () => {
+    $('[data-ok]', w).onclick = async () => {
+      if (DB.open.length && !(await confirmBox(`لديك ${DB.open.length} ${isQuick() ? 'فاتورة معلّقة' : 'طلب مفتوح'} لم تُدفع. هل تريد إغلاق الوردية رغم ذلك؟`, { ok: 'نعم، أغلق الوردية', danger: true }))) return;
       Object.assign(sh, { status: 'closed', closeAt: Date.now(), closeCash: +inp.value || 0, expected: s.expected, diff: round((+inp.value || 0) - s.expected), note: $('[data-note]', w).value, closedBy: App.user.name, summary: s });
       logAct('إغلاق وردية', 'فرق ' + money(sh.diff)); Store.saveNow(); Backup.auto();
       Modal.close(); App.updateShiftBadge();
