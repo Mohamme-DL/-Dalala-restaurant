@@ -415,7 +415,11 @@ const Modal = {
         <h3 class="text-base font-bold text-white flex items-center gap-2">${opts.icon ? `<i class="fa-solid ${opts.icon} text-sky-400"></i>` : ''}${opts.title}</h3>
         <button data-close class="w-8 h-8 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button></div>` : ''}
       <div class="modal-body overflow-y-auto p-5">${html}</div></div>`;
-    wrap.addEventListener('mousedown', e => { if (e.target === wrap && !opts.sticky) this.close(); });
+    // الإغلاق بالنقر على الخلفية: فقط إن بدأت اللمسة/الضغطة على الخلفية نفسها. على شاشات اللمس تظهر لوحة المفاتيح عند لمس الخانة فتتحرك النافذة،
+    // فتقع «النقرة المُركَّبة» التي يولّدها المتصفح بعد اللمس على الخلفية وتغلق النافذة (كانت تختفي خانة الملاحظة) — نتجاهلها
+    let downOnWrap = false;
+    wrap.addEventListener('pointerdown', e => { downOnWrap = e.target === wrap; }, true);
+    wrap.addEventListener('mousedown', e => { if (e.target === wrap && downOnWrap && !opts.sticky) this.close(); downOnWrap = false; });
     $$('[data-close]', wrap).forEach(b => b.onclick = () => this.close(wrap)); // يغلق نافذته هو (لا النافذة التي فوقه)
     $('#modalRoot').appendChild(wrap);
     this.stack.push({ wrap, onClose: opts.onClose });
@@ -2893,8 +2897,14 @@ const Kbd = {
 };
 // تظهر عند لمس خانة كتابة فقط (لا عند التركيز التلقائي مثل خانة البحث في الكاشير)، وتختفي عند لمس مكان آخر
 document.addEventListener('pointerdown', e => { if (!Kbd.on()) return; const t = e.target; if (Kbd.el && Kbd.el.contains(t)) return; if (t && t.closest && t.closest('#kbdBtn')) return;
-  if (Kbd.isText(t)) { Kbd.target = t; Kbd.show(t); } else if (Kbd.el && !(t.closest && t.closest('label,select,option'))) Kbd.hide(); }, true);
+  if (Kbd.isText(t)) { const was = !!Kbd.el; Kbd.target = t; Kbd.show(t);
+    // لمس: ظهور اللوحة يحرّك التخطيط، والمتصفح يولّد بعد اللمس نقرة مُركَّبة تقع على ما صار تحت الإصبع (زر أو خلفية نافذة) فتُنفَّذ بالخطأ.
+    // نمنع النقرة المُركَّبة التالية مباشرة ونركّز الخانة بأنفسنا
+    if (e.pointerType && e.pointerType !== 'mouse') { Kbd.guard = { until: Date.now() + 700, el: t }; try { t.focus({ preventScroll: true }); } catch (x) {} } }
+  else if (Kbd.el && !(t.closest && t.closest('label,select,option'))) Kbd.hide(); }, true);
 window.addEventListener('resize', () => Kbd.size());
+['mousedown', 'mouseup', 'click'].forEach(ty => document.addEventListener(ty, e => { const g = Kbd.guard; if (!g) return; if (Date.now() > g.until) { Kbd.guard = null; return; }
+  if (e.target === g.el || (Kbd.el && Kbd.el.contains(e.target))) return; e.preventDefault(); e.stopPropagation(); }, true));
 Theme.apply();
 window.addEventListener('resize', () => Theme.fit());
 document.addEventListener('keydown', e => {
