@@ -689,7 +689,8 @@ const App = {
   },
   applyMode() {
     const q = isQuick();
-    $('#hdrHold').classList.toggle('hidden', q); $('#hdrTables').classList.toggle('hidden', q);
+    $('#hdrHold').classList.toggle('hidden', false); $('#hdrTables').classList.toggle('hidden', q);
+    { const hb = $('#hdrHold'); if (hb) { const sp = hb.querySelector('span.kbd'); hb.title = q ? 'تعليق الفاتورة الحالية لخدمة زبون آخر ثم استدعائها' : ''; hb.lastChild.textContent = q ? 'تعليق' : 'حفظ/مطبخ'; if (sp) sp.textContent = 'F4'; } }
     $('#orderTypeTabs').classList.toggle('hidden', q);
     if (q && POS.cur && !POS.cur.items.length) POS.cur = POS.blank('take');
     if (q && ['tables', 'kitchen'].includes(this.view)) this.view = 'pos';
@@ -766,7 +767,7 @@ const App = {
       }
       if (e.key === 'Escape' && Modal.isOpen) { e.preventDefault(); return Modal.close(); }
       const map = { F1: () => POS.openSearch(), F2: () => POS.clear(), F3: () => POS.newOrder(), F4: () => POS.hold(), F5: () => this.go('tables'), F6: () => POS.printPreBill(), F8: () => POS.pay('cash'), F9: () => POS.pay('card'), F11: () => this.toggleFullscreen() };
-      if (isQuick() && (e.key === 'F4' || e.key === 'F5')) { e.preventDefault(); return; }
+      if (isQuick() && e.key === 'F5') { e.preventDefault(); return; }
       if (map[e.key]) { e.preventDefault(); if (Modal.isOpen && e.key !== 'F11') return; if (this.view !== 'pos' && !['F5', 'F11'].includes(e.key)) this.go('pos'); map[e.key](); return; }
       // numpad typing on POS when not focused in an input
       if (this.view === 'pos' && !Modal.isOpen && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) {
@@ -895,6 +896,7 @@ function nextDailyNo() {
   return ++s.dailyNo.n;
 }
 function tableName(id) { const t = DB.tables.find(x => x.id === id); return t ? t.name : '-'; }
+function heldLabel(o) { return 'معلّقة' + (o.dailyNo ? ' #' + o.dailyNo : '') + (o.customer && o.customer.name ? ' — ' + o.customer.name : ''); }
 function orderLabel(o) {
   if (o.type === 'dine') return 'طاولة ' + tableName(o.tableId);
   return TYPES[o.type].name + (o.dailyNo ? ' رقم ' + o.dailyNo : '') + (o.customer && o.customer.name ? ' — ' + o.customer.name : '');
@@ -910,11 +912,11 @@ const POS = {
   /** شريط الطلبات المفتوحة: انتقال سريع بين الطاولات والطلبات */
   renderStrip() {
     const el = $('#openStrip'); if (!el) return;
-    if (isQuick() || (!DB.open.length && !this.cur.editInv)) { el.classList.add('hidden'); el.classList.remove('flex'); return; }
+    if (!DB.open.length && !this.cur.editInv) { el.classList.add('hidden'); el.classList.remove('flex'); return; }
     const c = this.cur;
     const chip = (id, label, sub, on) => `<button onclick="POS.switchTo('${id}')" class="press shrink-0 px-3 py-1.5 rounded-xl border text-xs font-bold whitespace-nowrap ${on ? 'bg-indigo-600 border-indigo-400 text-white' : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-700'}">${esc(label)}${sub ? ` <span class="num opacity-80">${sub}</span>` : ''}</button>`;
-    el.innerHTML = `<span class="text-[10px] text-slate-500 shrink-0"><i class="fa-solid fa-clock-rotate-left"></i> المفتوحة</span>` +
-      DB.open.map(o => chip(o.id, o.type === 'dine' ? 'طاولة ' + tableName(o.tableId) : orderLabel(o), money(calcOrder(o).total, false), c.id === o.id && !c.editInv)).join('') +
+    el.innerHTML = `<span class="text-[10px] text-slate-500 shrink-0"><i class="fa-solid fa-clock-rotate-left"></i> ${isQuick() ? 'المعلّقة' : 'المفتوحة'}</span>` +
+      DB.open.map(o => chip(o.id, isQuick() ? heldLabel(o) : o.type === 'dine' ? 'طاولة ' + tableName(o.tableId) : orderLabel(o), money(calcOrder(o).total, false), c.id === o.id && !c.editInv)).join('') +
       chip('new', '+ جديد', '', !c.id && !c.editInv);
     el.classList.remove('hidden'); el.classList.add('flex');
   },
@@ -931,7 +933,7 @@ const POS = {
       if (c.editInv) { if (!(await confirmBox('تم تعديل الفاتورة ولم تُحفظ. تجاهل التعديلات والانتقال؟', { ok: 'تجاهل وانتقل', danger: true }))) return; }
       else {
         if (c.type === 'dine' && !c.tableId) return toast('اختر الطاولة للطلب الحالي أولًا (أو امسحه)', 'warning');
-        if (!(await confirmBox('الطلب الحالي لم يُحفظ. حفظه وإرساله للمطبخ ثم الانتقال؟', { ok: 'حفظ وانتقال' }))) return;
+        if (!(await confirmBox(isQuick() ? 'الفاتورة الحالية لم تُدفع. تعليقها ثم الانتقال؟' : 'الطلب الحالي لم يُحفظ. حفظه وإرساله للمطبخ ثم الانتقال؟', { ok: isQuick() ? 'تعليق وانتقال' : 'حفظ وانتقال' }))) return;
         this.hold(true); if (this.cur.items.length) return;
       }
     }
@@ -1305,17 +1307,16 @@ const POS = {
   /** Save (hold) order + send unsent items to kitchen */
   hold(silent) {
     if (this.cur.editInv) return toast('أنت في وضع تعديل فاتورة — اختر طريقة الدفع لحفظ التعديل', 'warning');
-    if (isQuick()) return toast('حفظ الطلبات غير متاح في وضع البيع الفوري', 'warning');
     const o = this.cur;
-    if (!o.items.length) return toast('لا توجد أصناف لحفظها', 'error');
+    if (!o.items.length) return toast(isQuick() ? 'لا توجد أصناف لتعليقها' : 'لا توجد أصناف لحفظها', 'error');
     if (!Shift.ensure()) return;
     if (o.type === 'dine' && !o.tableId) return this.pickTable(() => this.hold(silent));
     if (!o.id) { o.id = uid(); o.createdAt = Date.now(); o.userName = App.user.name; o.dailyNo = nextDailyNo(); }
-    this.sendKitchen(o);
+    if (!isQuick()) this.sendKitchen(o); // الكاشير السريع: التعليق لا يرسل للمطبخ، التذكرة تُطبع عند الدفع
     const i = DB.open.findIndex(x => x.id === o.id);
     if (i >= 0) DB.open[i] = clone(o); else DB.open.push(clone(o));
     Store.save();
-    toast(`تم حفظ الطلب — ${orderLabel(o)}`, 'success'); this.toggleCart(false);
+    toast(isQuick() ? `تم تعليق الفاتورة — ${heldLabel(o)}` : `تم حفظ الطلب — ${orderLabel(o)}`, 'success'); this.toggleCart(false);
     this.cur = this.blank(o.type); this.tendered = ''; this.sel = null; this.render();
   },
   sendKitchen(o) {
