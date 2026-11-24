@@ -27,7 +27,11 @@ SetCompressor /SOLID lzma
 !define UNINST_KEY  "Software\Microsoft\Windows\CurrentVersion\Uninstall\DalalaRestaurantW7"
 
 Name "${APPNAME_AR} - ${APPNAME}"
-OutFile "dist/Dalala-Restaurant-Setup-${VERSION}-Win7-${ARCH}.exe"
+!ifdef DEMO
+  OutFile "dist/Dalala-Restaurant-Demo-Setup-${VERSION}-Win7-${ARCH}.exe"
+!else
+  OutFile "dist/Dalala-Restaurant-Setup-${VERSION}-Win7-${ARCH}.exe"
+!endif
 InstallDir "$LOCALAPPDATA\Programs\Dalala Restaurant W7"
 InstallDirRegKey HKCU "Software\DalalaRestaurantW7" "InstallDir"
 RequestExecutionLevel user

@@ -3216,5 +3216,18 @@ const Printer = {
 document.addEventListener('DOMContentLoaded', () => App.init());
 </script>
 <script src="assets/sync.js"></script>
+<script>
+/* نسخة تجريبية: شارة صغيرة بالأيام المتبقية + زر التفعيل */
+(function () {
+  var d = window.dalalaDesktop && window.dalalaDesktop.demo; if (!d) return;
+  var el = document.createElement('button'); el.type = 'button'; el.id = 'demoBadge';
+  var left = d.daysLeft, warn = left <= 3;
+  el.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:150;font:700 11px Tahoma,sans-serif;padding:5px 10px;border-radius:999px;border:1px solid ' + (warn ? '#f87171' : '#f59e0b') + ';background:' + (warn ? 'rgba(127,29,29,.92)' : 'rgba(120,53,15,.92)') + ';color:#fff;cursor:pointer;direction:rtl';
+  el.textContent = 'نسخة تجريبية — متبقي ' + (left === 1 ? 'يوم واحد' : left === 2 ? 'يومان' : left <= 10 ? left + ' أيام' : left + ' يوماً') + ' · تفعيل';
+  el.title = 'اضغط لإدخال كود التفعيل';
+  el.onclick = function () { try { window.dalalaLicense && window.dalalaLicense.openActivation(); } catch (e) {} };
+  document.body.appendChild(el);
+})();
+</script>
 </body>
 </html>

@@ -21,7 +21,7 @@ app.on('child-process-gone', (_e, d) => {
   }
 });
 
-let win = null, actWin = null, state = { ok: false, reason: 'none' }, lastSaved = '';
+let win = null, actWin = null, state = { ok: false, reason: 'none' }, lastSaved = '', demoInfo = null;
 
 /* ---------- several computers, one database (LAN) ----------
    network.json: { mode: 'local' | 'host' | 'client', port, key, host }  */
@@ -132,16 +132,18 @@ function createActivation() {
   actWin.on('closed', () => { actWin = null; });
 }
 
-ipcMain.handle('lic:info', () => ({ product: PRODUCT, deviceId: lic.deviceId(), reason: state.reason, payload: state.payload || null }));
+ipcMain.handle('lic:info', () => ({ product: PRODUCT, deviceId: lic.deviceId(), reason: state.reason, payload: state.payload || null, demo: demoInfo }));
+ipcMain.handle('lic:openActivation', e => { if (!fromMain(e) || !demoInfo) return false; if (actWin) { actWin.focus(); return true; } createActivation(); return true; });
 ipcMain.handle('lic:activate', (_e, key) => {
   const r = lic.activate(app.getPath('userData'), key);
-  if (r.ok) { state = r; setTimeout(() => { createMain(); if (actWin) actWin.close(); }, 900); }
+  if (r.ok && demoInfo) { setTimeout(() => { app.relaunch(); app.exit(0); }, 900); } // كانت تجريبية: إعادة تشغيل كاملة بالنسخة المفعّلة
+  else if (r.ok) { state = r; setTimeout(() => { createMain(); if (actWin) actWin.close(); }, 900); }
   return { ok: r.ok, reason: r.reason, payload: r.payload || null };
 });
 ipcMain.handle('lic:copy', (_e, text) => { clipboard.writeText(String(text || '')); return true; });
 ipcMain.handle('lic:open', (_e, url) => { if (/^https:\/\/wa\.me\/\d+/.test(String(url))) shell.openExternal(url); return true; });
 ipcMain.on('lic:status', e => {
-  e.returnValue = state.ok ? { licensed: true, customer: state.payload.c || '', expiry: state.payload.e || '', issued: state.payload.i || '', deviceId: lic.deviceId(), product: PRODUCT.id } : { licensed: false };
+  e.returnValue = state.ok ? { demo: demoInfo, licensed: true, customer: state.payload.c || '', expiry: state.payload.e || '', issued: state.payload.i || '', deviceId: lic.deviceId(), product: PRODUCT.id } : { licensed: false };
 });
 
 /* printing: list printers, print the current page silently on a chosen printer */
@@ -203,6 +205,12 @@ app.on('second-instance', () => { const w = win || actWin; if (w) { if (w.isMini
 app.whenReady().then(async () => {
   NET = netConfig(); await startServer();
   state = lic.check(app.getPath('userData'));
+  demoInfo = null;
+  if (!state.ok && PRODUCT.demo > 0) { // نسخة تجريبية: تعمل بلا تفعيل طوال المدة
+    const t = require('./trial').check(app.getPath('userData'), PRODUCT.id, lic.deviceId(), PRODUCT.demo);
+    if (t.ok) { demoInfo = { daysLeft: t.daysLeft, until: t.until, days: PRODUCT.demo }; state = { ok: true, demo: true, payload: { c: 'نسخة تجريبية', e: '', i: '' } }; }
+    else state = { ok: false, reason: t.reason };
+  }
   if (state.ok) createMain(); else createActivation();
 });
 app.on('before-quit', () => { if (server) server.flush(); if (localStore) { try { localStore.backupTo(path.join(app.getPath('userData'), 'local', 'backups', 'local-' + new Date().toISOString().slice(0, 10) + '.db')); const bd = path.join(app.getPath('userData'), 'local', 'backups'); fs.readdirSync(bd).filter(f => /^local-.*\.db$/.test(f)).sort().slice(0, -30).forEach(f => fs.rmSync(path.join(bd, f), { force: true })); } catch (e) { /* ignore */ } try { localStore.close(); } catch (e) { /* ignore */ } } }); // write the shared database to disk before closing
