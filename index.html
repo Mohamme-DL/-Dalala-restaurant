@@ -1984,6 +1984,7 @@ VIEWS.reports = (el) => {
       ${r.unpaid ? kpi('آجل غير مسدّد (مصروفات/مشتريات)', money(r.unpaid), 'fa-hourglass-half', 'text-amber-300', 'التزامات لم تُدفع بعد — لا تنقص النقدية') : ''}
       ${kpi('نقدي', money(r.cash), 'fa-money-bill-wave', 'text-teal-300')}
       ${kpi('بطاقة', money(r.card), 'fa-credit-card', 'text-indigo-300')}
+      ${kpi('إجمالي الديون المتبقية', money(Debt.totalOwed()), 'fa-hand-holding-dollar', Debt.totalOwed() > 0 ? 'text-amber-300' : 'text-emerald-400', Debt.list().filter(x => x.balance > 0).length + ' زبون عليهم ديون — الرصيد الحالي (غير مرتبط بالفترة)')}
       ${r.credit || r.debtIn ? kpi('مبيعات آجلة', money(r.credit), 'fa-hand-holding-dollar', 'text-amber-300', 'تحصيل ديون في الفترة: ' + money(r.debtIn)) : ''}
       ${kpi('الخصومات', money(r.discount), 'fa-tag', 'text-amber-300')}
       ${kpi('ملغاة / مرتجعة', r.voids.length, 'fa-ban', 'text-rose-300', money(r.voids.reduce((s, o) => s + o.total, 0)))}
@@ -2217,6 +2218,7 @@ const Debt = {
     (DB.debtPays || []).forEach(x => { const a = acc({ name: x.name, phone: x.phone }, x.date); if (a) { a.paid += +x.amount || 0; a.pays.push(x); } });
     return [...m.values()].map(a => Object.assign(a, { credit: round(a.credit), paid: round(a.paid), balance: round(a.credit - a.paid) }));
   },
+  totalOwed() { return round(this.accounts().reduce((t, a) => t + Math.max(0, a.balance), 0)); },
   account(key) { return this.accounts().find(a => a.key === key) || null; },
   balance(key) { const a = this.account(key); return a ? a.balance : 0; },
   /** البيع بالآجل يحتاج زبوناً معروفاً: يُطلب الاسم والهاتف إن لم يُدخلا */
@@ -3227,6 +3229,7 @@ const Printer = {
       ${row('عدد الفواتير:', r.count)}${row('إجمالي المبيعات:', money(r.sales))}${row('متوسط الفاتورة:', money(r.avg))}${row('الخصومات:', money(r.discount))}
       ${r.service ? row('الخدمة:', money(r.service)) : ''}${r.tax ? row('الضريبة:', money(r.tax)) : ''}${r.delivery ? row('التوصيل:', money(r.delivery)) : ''}${r.deliveryDriver ? row('منها لعامل التوصيل:', money(r.deliveryDriver)) : ''}
       <div class="hr"></div>${row('نقدي:', money(r.cash))}${row('بطاقة:', money(r.card))}${r.credit ? row('آجل (ديون):', money(r.credit)) : ''}${r.debtIn ? row('تحصيل ديون:', money(r.debtIn)) : ''}${row('المصروفات:', money(r.expenses))}${r.useMat || r.purchases ? row('المشتريات:', money(r.purchases)) : ''}${row('الملغاة:', r.voids.length)}
+      ${Debt.totalOwed() > 0 ? row('إجمالي الديون المتبقية:', money(Debt.totalOwed())) : ''}
       ${(r.itemProfit ? row('ربح الأصناف:', money(r.profit)) : '') + (r.useMat ? row('صافي الربح (− المصروفات):', money(r.netProfit)) + row('صافي النقدية (− المشتريات − المصروفات):', money(r.net)) : row('صافي الربح (المبيعات − المصروفات):', money(r.netProfit)))}
       <div class="hr2"></div><div class="b">الأصناف المباعة</div>
       <table><thead><tr><th>الصنف</th><th class="c">كمية</th><th class="l">المبلغ</th>${r.itemProfit ? '<th class="l">الربح</th>' : ''}</tr></thead><tbody>${top.map(([n, v]) => `<tr><td>${esc(n)}</td><td class="c">${v.qty}</td><td class="l">${money(v.total, false)}</td>${r.itemProfit ? `<td class="l">${money(v.net - v.cost, false)}</td>` : ''}</tr>`).join('')}</tbody></table>
