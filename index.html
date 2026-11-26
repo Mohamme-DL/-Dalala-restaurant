@@ -846,9 +846,10 @@ const Shift = {
       Object.assign(sh, { status: 'closed', closeAt: Date.now(), closeCash: +inp.value || 0, expected: s.expected, diff: round((+inp.value || 0) - s.expected), note: $('[data-note]', w).value, closedBy: App.user.name, summary: s });
       logAct('إغلاق وردية', 'فرق ' + money(sh.diff)); Store.saveNow(); Backup.auto();
       Modal.close(); App.updateShiftBadge();
-      Printer.shiftReport(sh);
+      // نعود لشاشة الدخول فوراً، ثم يُطبع تقرير الوردية (نافذة الطباعة كانت تحجب الشاشة وتبدو كأن المنظومة انقفلت)
+      try { App.lock(); } catch (e) { console.error(e); }
       toast('تم إغلاق الوردية', 'success');
-      setTimeout(() => App.lock(), 600);
+      setTimeout(() => { try { Printer.shiftReport(sh); } catch (e) { console.error(e); toast('تعذرت طباعة تقرير الوردية', 'error'); } }, 350);
     };
   },
   ensure() {
@@ -1009,7 +1010,7 @@ const POS = {
     else meta += `<button onclick="POS.editCustomer()" class="press flex-1 flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-bold min-w-0 ${o.customer.name || o.customer.phone ? 'bg-violet-500/15 border-violet-500/40 text-violet-200' : 'bg-slate-800 border-dashed border-slate-600 text-slate-400'}"><i class="fa-solid fa-user"></i><span class="truncate">${o.customer.name || o.customer.phone ? esc(o.customer.name || o.customer.phone) : (o.type === 'delivery' ? 'بيانات الزبون والعنوان' : 'اسم الزبون (اختياري)')}</span></button>`;
     if (!isQuick() && o.items.length) meta += `${o.type === 'dine' && o.tableId ? `<button onclick="POS.moveMerge()" title="نقل / دمج الطاولة" class="w-10 h-10 rounded-xl border bg-slate-800 border-slate-700 text-indigo-300 hover:text-white"><i class="fa-solid fa-right-left"></i></button>` : ''}<button onclick="POS.splitBill()" title="تقسيم الحساب" class="w-10 h-10 rounded-xl border bg-slate-800 border-slate-700 text-emerald-300 hover:text-white"><i class="fa-solid fa-scissors"></i></button>`;
     meta += `<button onclick="POS.editNote()" title="ملاحظة الطلب" class="w-10 h-10 rounded-xl border ${o.note ? 'bg-amber-500/15 border-amber-500/40 text-amber-300' : 'bg-slate-800 border-slate-700 text-slate-400'}"><i class="fa-solid fa-note-sticky"></i></button>
-      <button onclick="POS.printPreBill()" title="طباعة الفاتورة الحالية (F6)" class="w-10 h-10 rounded-xl border bg-slate-800 border-slate-700 text-slate-300 hover:text-white"><i class="fa-solid fa-print"></i></button>
+      <button onclick="POS.printPreBill()" title="${o.items.length ? 'طباعة الفاتورة الحالية قبل البيع (F6)' : 'طباعة آخر فاتورة مباعة (F6)'}" class="${o.items.length ? 'w-10' : 'px-3 gap-1.5 text-sm font-bold'} h-10 rounded-xl border flex items-center justify-center bg-slate-800 border-slate-700 text-slate-300 hover:text-white"><i class="fa-solid fa-print"></i>${o.items.length ? '' : 'آخر فاتورة'}</button>
       <button onclick="POS.clear()" title="مسح الطلب (F2)" class="w-10 h-10 rounded-xl border bg-slate-800 border-slate-700 text-rose-300 hover:bg-rose-950/50"><i class="fa-solid fa-trash-can"></i></button>`;
     if (o.editInv) {
       const inv = DB.orders.find(x => x.id === o.editInv) || {};
@@ -1329,8 +1330,22 @@ const POS = {
     DB.tickets.unshift(t); if (DB.tickets.length > 500) DB.tickets.length = 500;
     if (S().kitchenPrint && Printer.kitchenList().length) Printer.kitchen(t);
   },
+  // آخر فاتورة تم بيعها (من هذا الجهاز/الوردية الحالية ثم الأحدث عموماً)
+  lastSoldInv() {
+    const paid = DB.orders.filter(x => x.status === 'paid' || !x.status);
+    if (!paid.length) return null;
+    const mine = paid.filter(x => App.user && x.userId === App.user.id);
+    const pool = mine.length ? mine : paid;
+    return pool.reduce((m, x) => (!m || (x.date || 0) >= (m.date || 0)) ? x : m, null);
+  },
   printPreBill() {
-    if (!this.cur.items.length) return toast('الطلب فارغ', 'error');
+    // سلة فارغة = بعد البيع: يطبع آخر فاتورة مباعة. وإن كان في السلة أصناف تُطبع الفاتورة الحالية قبل البيع كما كان.
+    if (!this.cur.items.length) {
+      const L = this.lastSold && DB.orders.find(x => x.id === this.lastSold) || this.lastSoldInv();
+      if (!L) return toast('لا توجد فاتورة مباعة بعد', 'error');
+      toast('طباعة آخر فاتورة: ' + L.no, 'success');
+      return Printer.receipt(L);
+    }
     Printer.receipt(Object.assign({}, this.cur, calcOrder(this.cur), { no: '—', date: Date.now(), pre: true, userName: App.user.name, pay: { cash: 0, card: 0 } }));
   },
 
@@ -1403,7 +1418,7 @@ const POS = {
       userId: by ? by.id : App.user.id, userName: by ? by.name : App.user.name, shiftId: sh ? sh.id : null, status: 'paid'
     };
     delete o.billReq; delete o.payReq;
-    DB.orders.push(inv);
+    DB.orders.push(inv); if (!by) this.lastSold = inv.id;
     DB.open = DB.open.filter(x => x.id !== o.id);
     // stock
     inv.items.forEach(i => { const p = DB.products.find(x => x.id === i.pid); if (p && p.trackStock) p.stock = round(p.stock - i.qty); });
