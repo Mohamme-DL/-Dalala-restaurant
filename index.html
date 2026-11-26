@@ -1360,8 +1360,11 @@ const POS = {
     let pay = { cash: 0, card: 0 }, tendered = 0, change = 0;
     if (method === 'cash') {
       tendered = parseFloat(this.tendered) || c.total;
-      if (tendered < c.total) return toast(`المبلغ المدفوع أقل من الإجمالي (${money(c.total)})`, 'error');
-      pay.cash = c.total; change = round(tendered - c.total);
+      if (tendered < c.total) {
+        // زبون محدد دفع أقل من الفاتورة: يتم البيع ويُسجَّل الباقي ديناً عليه
+        const r = await this.shortPayCredit(o, c, tendered); if (!r) return;
+        pay = r; change = 0;
+      } else { pay.cash = c.total; change = round(tendered - c.total); }
     } else if (method === 'card') {
       pay.card = c.total;
     } else if (method === 'credit') {
@@ -1374,6 +1377,15 @@ const POS = {
       if (pay.credit && (!(await Perm.ask('credit', 'البيع بالآجل')) || !(await Debt.ensureCustomer(o)))) return;
     }
     this.finalize(o, c, pay, tendered, change);
+  },
+  // الدفع النقدي الناقص: يُشترط زبون محدد (اسم)، والباقي يُسجَّل ديناً (آجل). يعيد توزيع الدفع أو null عند الإلغاء/عدم وجود زبون.
+  async shortPayCredit(o, c, tendered) {
+    const cu = o.customer;
+    if (!(cu && String(cu.name || '').trim() && custKey(cu))) { toast(`المبلغ المدفوع أقل من الإجمالي (${money(c.total)}) — اختر زبوناً ليُسجَّل الباقي ديناً عليه`, 'error'); return null; }
+    if (!(await Perm.ask('credit', 'البيع بالآجل'))) return null;
+    const rest = round(c.total - tendered);
+    toast(`سيُسجَّل ${money(rest)} ديناً على ${cu.name}`, 'info');
+    return { cash: round(tendered), card: 0, credit: rest };
   },
   splitDialog(total) {
     return new Promise(res => {
@@ -1759,7 +1771,7 @@ Inv.saveEdit = async function (method) {
   if (!inv || inv.status !== 'paid') { toast('الفاتورة لم تعد قابلة للتعديل', 'error'); return Inv.cancelEdit(); }
   if (!cur.items.length) return toast('الفاتورة فارغة — للإلغاء استخدم «إلغاء / إرجاع» من سجل الفواتير', 'error');
   const c = calcOrder(cur); let pay, tendered = 0, change = 0;
-  if (method === 'cash') { tendered = parseFloat(POS.tendered) || c.total; if (tendered < c.total) return toast(`المبلغ المدفوع أقل من الإجمالي (${money(c.total)})`, 'error'); pay = { cash: c.total, card: 0 }; change = round(tendered - c.total); }
+  if (method === 'cash') { tendered = parseFloat(POS.tendered) || c.total; if (tendered < c.total) { const r = await POS.shortPayCredit(cur, c, tendered); if (!r) return; pay = r; change = 0; } else { pay = { cash: c.total, card: 0 }; change = round(tendered - c.total); } }
   else if (method === 'card') pay = { cash: 0, card: c.total };
   else if (method === 'credit') { if (!(await Perm.ask('credit', 'البيع بالآجل')) || !(await Debt.ensureCustomer(cur))) return; pay = { cash: 0, card: 0, credit: c.total }; }
   else { const r = await POS.splitDialog(c.total); if (!r) return; pay = r.pay; tendered = r.tendered; change = r.change; if (pay.credit && (!(await Perm.ask('credit', 'البيع بالآجل')) || !(await Debt.ensureCustomer(cur)))) return; }
