@@ -198,7 +198,7 @@ if (!(window.dalalaDesktop && window.dalalaDesktop.licensed)) { try { window.sto
 /* =====================================================================
    منظومة دلالة للمطاعم — Core: storage, utils, UI helpers
    ===================================================================== */
-const APP_VERSION = '1.4.5';
+const APP_VERSION = '1.4.6';
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -2974,15 +2974,28 @@ const NotePre = {
       ${this.box('inv', 'ملاحظات الفاتورة (زر «ملاحظة على الطلب»)')}${this.box('item', 'ملاحظات الأصناف (الضغط مرتين على الصنف في الفاتورة)')}</div>`;
   },
   paint() { const el = $('#notePreCard'); if (el) el.outerHTML = this.panel(); },
-  // أزرار كبيرة قابلة للضغط: تُلحق الملاحظة بالحقل (أو تُزيلها إن كانت مضافة)
+  // أزرار كبيرة قابلة للضغط: تُلحق الملاحظة بالحقل (أو تُزيلها إن كانت مضافة). «تعديل الجاهز» يبقى متاحاً داخل النافذة أيضاً.
   tags(k, inp, host) {
-    host.innerHTML = this.list(k).map((t, i) => `<button type="button" class="rounded-xl border border-slate-600 bg-slate-800 hover:bg-slate-700 text-slate-100 font-bold" style="min-height:52px;padding:8px 18px;font-size:16px" data-pt="${i}">${esc(t)}</button>`).join('') || '<span class="text-xs text-slate-500">لا توجد ملاحظات جاهزة — أضفها من الإعدادات</span>';
-    const sync = () => { const cur = inp.value.split(/[،,|]\s*/).map(x => x.trim()).filter(Boolean); $$('[data-pt]', host).forEach(b => { const on = cur.includes(this.list(k)[+b.dataset.pt]); b.style.background = on ? 'rgba(245,158,11,.28)' : ''; b.style.borderColor = on ? '#fbbf24' : ''; b.style.color = on ? '#fde68a' : ''; }); };
-    $$('[data-pt]', host).forEach(b => b.onclick = () => {
-      const t = this.list(k)[+b.dataset.pt]; let cur = inp.value.split(/[،,|]\s*/).map(x => x.trim()).filter(Boolean);
-      cur = cur.includes(t) ? cur.filter(x => x !== t) : cur.concat(t); inp.value = cur.join('، '); sync();
-    });
-    inp.addEventListener('input', sync); sync();
+    let manage = false;
+    const split = () => inp.value.split(/[،,|]\s*/).map(x => x.trim()).filter(Boolean);
+    const BTN = 'class="rounded-xl border border-slate-600 bg-slate-800 hover:bg-slate-700 text-slate-100 font-bold" style="min-height:52px;padding:8px 18px;font-size:16px"';
+    const paint = () => {
+      const list = this.list(k), cur = split();
+      host.innerHTML = (manage
+        ? list.map((t, i) => `<span class="inline-flex items-center gap-1 rounded-xl bg-slate-800 border border-slate-700" style="min-height:52px;padding:0 6px 0 12px"><button type="button" data-ren="${i}" class="font-bold" title="تعديل">${esc(t)} <i class="fa-solid fa-pen text-[10px] text-sky-400"></i></button><button type="button" data-del="${i}" title="حذف" class="w-9 h-9 rounded-lg text-rose-400 hover:bg-slate-700"><i class="fa-solid fa-xmark"></i></button></span>`).join('')
+          + `<button type="button" data-add ${BTN.replace('bg-slate-800', 'bg-sky-900/40')}><i class="fa-solid fa-plus"></i> إضافة</button>`
+        : (list.map((t, i) => `<button type="button" class="rounded-xl border border-slate-600 bg-slate-800 hover:bg-slate-700 text-slate-100 font-bold" style="min-height:52px;padding:8px 18px;font-size:16px${cur.includes(t) ? ';background:rgba(245,158,11,.28);border-color:#fbbf24;color:#fde68a' : ''}" data-pt="${i}">${esc(t)}</button>`).join('') || '<span class="text-xs text-slate-500">لا توجد ملاحظات جاهزة — اضغط «تعديل الجاهز» لإضافة</span>'))
+        + `<button type="button" data-mg class="text-xs text-sky-400 hover:text-sky-300 self-center px-2">${manage ? '<i class="fa-solid fa-check"></i> تم' : '<i class="fa-solid fa-pen"></i> تعديل الجاهز'}</button>`;
+      $$('[data-pt]', host).forEach(b => b.onclick = () => {
+        const t = this.list(k)[+b.dataset.pt]; let c = split();
+        c = c.includes(t) ? c.filter(x => x !== t) : c.concat(t); inp.value = c.join('، '); paint();
+      });
+      $$('[data-del]', host).forEach(b => b.onclick = () => { this.list(k).splice(+b.dataset.del, 1); Store.save(); paint(); });
+      $$('[data-ren]', host).forEach(b => b.onclick = async () => { const i = +b.dataset.ren, v = await promptBox('تعديل الملاحظة', { value: this.list(k)[i] }); if (v && v.trim()) { this.list(k)[i] = v.trim(); Store.save(); } paint(); });
+      const add = $('[data-add]', host); if (add) add.onclick = async () => { const v = await promptBox('ملاحظة جاهزة جديدة', { value: '' }); if (v && v.trim()) { this.list(k).push(v.trim()); Store.save(); } paint(); };
+      $('[data-mg]', host).onclick = () => { manage = !manage; paint(); };
+    };
+    inp.addEventListener('input', () => { if (!manage) paint(); }); paint();
   }
 };
 
