@@ -798,6 +798,15 @@ const Shift = {
     };
     $('[data-ok]', w).onclick = go; $('[data-cash]', w).onkeydown = e => e.key === 'Enter' && go();
   },
+  // الأصناف المباعة في الوردية (بعد استبعاد الفواتير الملغاة): الاسم والكمية والمبلغ
+  items(sh) {
+    const m = {};
+    DB.orders.filter(o => o.shiftId === sh.id && o.status === 'paid').forEach(o => (o.items || []).forEach(i => {
+      const k = i.name, r = m[k] = m[k] || { name: i.name, qty: 0, total: 0 };
+      r.qty += +i.qty || 0; r.total += (+i.qty || 0) * (+i.price || 0);
+    }));
+    return Object.values(m).sort((x, y) => y.qty - x.qty || x.name.localeCompare(y.name, 'ar'));
+  },
   summary(sh) {
     const orders = DB.orders.filter(o => o.shiftId === sh.id);
     const paid = orders.filter(o => o.status === 'paid');
@@ -831,13 +840,15 @@ const Shift = {
         ${row('رصيد افتتاحي', money(sh.openCash))}${row('المصروفات', money(s.exp), 'text-rose-400')}${s.drv ? row('رسوم توصيل لعامل التوصيل (نقداً)', money(s.drv), 'text-rose-400') : ''}
         ${row('النقد المتوقع في الدرج', money(s.expected), 'text-sky-300 text-base')}
       </div>
+      ${(() => { const its = this.items(sh); return its.length ? `<div class="mb-4"><div class="text-sm font-bold mb-1.5"><i class="fa-solid fa-utensils text-amber-400"></i> الأصناف المباعة (${its.reduce((a, x) => a + x.qty, 0)} قطعة)</div>
+        <div class="rounded-xl border border-slate-800 max-h-44 overflow-y-auto text-sm">${its.map(x => `<div class="flex justify-between gap-3 px-3 py-1.5 border-b border-slate-800 last:border-0"><span class="truncate">${esc(x.name)}</span><b class="num text-amber-300 shrink-0">× ${x.qty}</b></div>`).join('')}</div></div>` : ''; })()}
       <label class="lbl">النقد الفعلي في الدرج (الجرد)</label>
       <input class="inp text-xl num" type="number" step="any" inputmode="decimal" value="${s.expected}" data-cash>
       <div class="text-sm mt-2" data-diff></div>
       <label class="lbl mt-3">ملاحظات</label><input class="inp" data-note>
       <div class="flex gap-2 justify-end mt-5"><button class="btn-ghost" data-close>إلغاء</button>
       <button class="btn-warn" data-ok><i class="fa-solid fa-lock"></i> إغلاق الوردية وطباعة التقرير</button></div>`,
-      { title: 'إغلاق الوردية (تقرير Z)', icon: 'fa-cash-register', size: 'max-w-md' });
+      { title: 'إغلاق الوردية', icon: 'fa-cash-register', size: 'max-w-md' });
     const inp = $('[data-cash]', w);
     const upd = () => { const d = round((+inp.value || 0) - s.expected); $('[data-diff]', w).innerHTML = `الفرق: <b class="num ${d < 0 ? 'text-rose-400' : d > 0 ? 'text-amber-300' : 'text-emerald-400'}">${money(d)}</b> ${d < 0 ? '(عجز)' : d > 0 ? '(زيادة)' : '(مطابق)'}`; };
     inp.oninput = upd; upd();
@@ -1170,27 +1181,11 @@ const POS = {
       </div>
       <label class="lbl mt-3">ملاحظة للمطبخ</label>
       <input class="inp" value="${esc(it.note)}" placeholder="مثال: بدون بصل، سكر خفيف..." data-n>
-      <div class="flex items-center justify-between mt-3"><span class="text-xs text-slate-400">ملاحظات جاهزة</span><button class="text-xs text-sky-400 hover:text-sky-300" data-manage></button></div>
-      <div class="flex flex-wrap gap-1.5 mt-1.5" data-tags></div>
+      <div class="text-xs text-slate-400 mt-3">ملاحظات جاهزة (تُدار من الإعدادات)</div>
+      <div class="flex flex-wrap gap-2.5 mt-1.5" data-tags></div>
       <div class="flex gap-2 justify-end mt-5"><button class="btn-ghost" data-close>إلغاء</button><button class="btn-primary" data-ok>حفظ</button></div>`,
       { title: it.name, icon: 'fa-pen-to-square', size: 'max-w-md' });
-    let manage = false;
-    const presets = () => { const st = S(); if (!Array.isArray(st.notePresets)) st.notePresets = ['بدون سكر', 'سكر خفيف', 'بدون بصل', 'حار', 'بدون مايونيز', 'إضافي جبن', 'مثلج', 'تيك أوي']; return st.notePresets; };
-    const paintTags = () => {
-      const box = $('[data-tags]', w), list = presets();
-      $('[data-manage]', w).innerHTML = manage ? '<i class="fa-solid fa-check"></i> تم' : '<i class="fa-solid fa-pen"></i> تعديل الجاهز';
-      box.innerHTML = list.map((t, i) => manage
-        ? `<span class="chip bg-slate-800 border-slate-700 text-slate-200 inline-flex items-center gap-2"><button data-ren="${i}" title="تعديل">${esc(t)} <i class="fa-solid fa-pen text-[10px] text-sky-400"></i></button><button data-del="${i}" title="حذف" class="text-rose-400 hover:text-rose-300"><i class="fa-solid fa-xmark"></i></button></span>`
-        : `<button class="chip bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700" data-tag="${i}">${esc(t)}</button>`).join('')
-        + (manage ? '<button class="chip bg-sky-900/40 border-sky-700 text-sky-300" data-add><i class="fa-solid fa-plus"></i> إضافة</button>' : '');
-      $$('[data-tag]', box).forEach(b => b.onclick = () => { const t = presets()[+b.dataset.tag], n = $('[data-n]', w); n.value = n.value ? n.value + '، ' + t : t; });
-      $$('[data-del]', box).forEach(b => b.onclick = () => { presets().splice(+b.dataset.del, 1); Store.save(); paintTags(); });
-      $$('[data-ren]', box).forEach(b => b.onclick = async () => { const i = +b.dataset.ren, v = await promptBox('تعديل الملاحظة', { value: presets()[i] }); if (v && v.trim()) { presets()[i] = v.trim(); Store.save(); } paintTags(); });
-      const add = $('[data-add]', box);
-      if (add) add.onclick = async () => { const v = await promptBox('ملاحظة جاهزة جديدة', { value: '' }); if (v && v.trim()) { presets().push(v.trim()); Store.save(); } paintTags(); };
-    };
-    $('[data-manage]', w).onclick = () => { manage = !manage; paintTags(); };
-    paintTags();
+    NotePre.tags('item', $('[data-n]', w), $('[data-tags]', w));
     $('[data-ok]', w).onclick = async () => {
       const q = Math.max(1, parseInt($('[data-q]', w).value) || 1), p = parseFloat($('[data-p]', w).value);
       const note = $('[data-n]', w).value.trim();
@@ -1234,8 +1229,16 @@ const POS = {
     if (v !== null) { this.cur.deliveryFee = Math.max(0, parseFloat(v) || 0); this.renderOrder(); }
   },
   async editNote() {
-    const v = await promptBox('ملاحظة على الطلب', { value: this.cur.note, placeholder: 'تظهر في تذكرة المطبخ والفاتورة' });
-    if (v !== null) { this.cur.note = v.trim(); this.renderOrder(); }
+    const w = Modal.open(`
+      <label class="lbl">اكتب ملاحظة أو اختر من الجاهزة</label>
+      <input class="inp text-lg" value="${esc(this.cur.note || '')}" placeholder="تظهر في تذكرة المطبخ والفاتورة" data-n>
+      <div class="flex flex-wrap gap-2.5 mt-3" data-tags></div>
+      <div class="flex gap-2 justify-between mt-5"><button class="btn-ghost" data-clear><i class="fa-solid fa-eraser"></i> مسح</button><span class="flex gap-2"><button class="btn-ghost" data-close>إلغاء</button><button class="btn-primary px-8" data-ok>حفظ</button></span></div>`,
+      { title: 'ملاحظة على الطلب', icon: 'fa-comment-dots', size: 'max-w-xl' });
+    const inp = $('[data-n]', w); NotePre.tags('inv', inp, $('[data-tags]', w)); inp.focus();
+    $('[data-clear]', w).onclick = () => { inp.value = ''; inp.dispatchEvent(new Event('input')); };
+    const save = () => { this.cur.note = inp.value.trim(); Modal.closeAll(); this.renderOrder(); };
+    $('[data-ok]', w).onclick = save; inp.onkeydown = e => e.key === 'Enter' && save();
   },
   editCustomer() {
     const c = this.cur.customer;
@@ -2549,6 +2552,7 @@ VIEWS.settings = (el) => {
       <span class="flex gap-2"><button class="btn-ghost text-xs" onclick="Cfg.addTables()"><i class="fa-solid fa-plus"></i> إضافة طاولات</button></span></h3>
       ${zones.map(z => `<div class="mb-3"><div class="text-xs text-slate-400 mb-1.5 flex items-center gap-2"><span>${esc(z)}</span><button class="text-sky-400 hover:text-sky-300" title="تعديل / حذف المنطقة" onclick="Cfg.editZone(this.dataset.z)" data-z="${esc(z)}"><i class="fa-solid fa-pen"></i></button></div><div class="flex flex-wrap gap-1.5">${DB.tables.filter(t => (t.zone || 'الصالة') === z).map(t => `<button onclick="Cfg.editTable('${t.id}')" class="w-11 h-11 rounded-lg bg-slate-800 border border-slate-700 hover:border-sky-500 font-bold">${esc(t.name)}</button>`).join('')}</div></div>`).join('') || '<p class="text-slate-500 text-sm">لا توجد طاولات</p>'}
     </div>
+    ${NotePre.panel()}
     <div class="card p-5"><h3 class="font-bold mb-4"><i class="fa-solid fa-database text-teal-400"></i> البيانات والنسخ الاحتياطي</h3>
       ${Backup.available() ? `${sw('autoBackup', 'نسخ احتياطي تلقائي يومي', 'نسخة كل يوم تُحدَّث كل 20 دقيقة، ويُحتفظ بآخر 30 يوماً')}
       <div class="my-3"><div class="text-xs font-bold text-slate-300 mb-1">النسخ المحفوظة على هذا الجهاز</div><div id="bkList" class="max-h-52 overflow-y-auto"></div>
@@ -2949,6 +2953,39 @@ document.addEventListener('keydown', e => {
 }, true);
 document.addEventListener('wheel', e => { if (e.ctrlKey) { e.preventDefault(); Theme.step(e.deltaY < 0 ? 1 : -1); } }, { passive: false });
 if (window.matchMedia) { try { window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => { if (Theme.get().mode === 'auto') Theme.apply(); }); } catch (e) {} }
+/* ملاحظات جاهزة (للأصناف وللفاتورة) تُدار من الإعدادات */
+const NotePre = {
+  DEF: { item: ['بدون سكر', 'سكر خفيف', 'بدون بصل', 'حار', 'بدون مايونيز', 'إضافي جبن', 'مثلج', 'تيك أوي'],
+         inv: ['تيك أوي', 'توصيل', 'استعجال', 'بدون أكياس', 'بدون مناديل', 'تغليف منفصل', 'حار', 'للضيافة'] },
+  key(k) { return k === 'inv' ? 'invNotePresets' : 'notePresets'; },
+  list(k) { const st = S(), kk = this.key(k); if (!Array.isArray(st[kk])) st[kk] = this.DEF[k].slice(); return st[kk]; },
+  async add(k) { const v = await promptBox(k === 'inv' ? 'ملاحظة جاهزة للفاتورة' : 'ملاحظة جاهزة للصنف', { value: '' }); if (v && v.trim()) { this.list(k).push(v.trim()); Store.save(); } this.paint(); },
+  async ren(k, i) { const v = await promptBox('تعديل الملاحظة', { value: this.list(k)[i] }); if (v && v.trim()) { this.list(k)[i] = v.trim(); Store.save(); } this.paint(); },
+  del(k, i) { this.list(k).splice(i, 1); Store.save(); this.paint(); },
+  reset(k) { S()[this.key(k)] = this.DEF[k].slice(); Store.save(); this.paint(); },
+  box(k, title) {
+    return `<div class="mb-5"><div class="flex items-center justify-between mb-2"><b class="text-sm">${title}</b><button class="text-xs text-slate-400 hover:text-slate-200" onclick="NotePre.reset('${k}')">استرجاع الافتراضي</button></div>
+      <div class="flex flex-wrap gap-2">${this.list(k).map((t, i) => `<span class="inline-flex items-center gap-1 rounded-xl bg-slate-800 border border-slate-700 pr-3 pl-1 py-1.5 text-sm"><button onclick="NotePre.ren('${k}',${i})" title="تعديل">${esc(t)}</button><button onclick="NotePre.del('${k}',${i})" title="حذف" class="w-7 h-7 rounded-lg text-rose-400 hover:bg-slate-700"><i class="fa-solid fa-xmark"></i></button></span>`).join('')}
+        <button class="rounded-xl bg-sky-900/40 border border-sky-700 text-sky-300 px-3 py-1.5 text-sm" onclick="NotePre.add('${k}')"><i class="fa-solid fa-plus"></i> إضافة</button></div></div>`;
+  },
+  panel() {
+    return `<div class="card p-5" id="notePreCard"><h3 class="font-bold mb-1"><i class="fa-solid fa-comment-dots text-amber-400"></i> ملاحظات جاهزة</h3>
+      <p class="text-xs text-slate-400 mb-4">تظهر كأزرار كبيرة عند كتابة الملاحظة لتسريع البيع، والكتابة اليدوية تبقى متاحة. اضغط الملاحظة لتعديلها أو ✕ لحذفها.</p>
+      ${this.box('inv', 'ملاحظات الفاتورة (زر «ملاحظة على الطلب»)')}${this.box('item', 'ملاحظات الأصناف (الضغط مرتين على الصنف في الفاتورة)')}</div>`;
+  },
+  paint() { const el = $('#notePreCard'); if (el) el.outerHTML = this.panel(); },
+  // أزرار كبيرة قابلة للضغط: تُلحق الملاحظة بالحقل (أو تُزيلها إن كانت مضافة)
+  tags(k, inp, host) {
+    host.innerHTML = this.list(k).map((t, i) => `<button type="button" class="rounded-xl border border-slate-600 bg-slate-800 hover:bg-slate-700 text-slate-100 font-bold" style="min-height:52px;padding:8px 18px;font-size:16px" data-pt="${i}">${esc(t)}</button>`).join('') || '<span class="text-xs text-slate-500">لا توجد ملاحظات جاهزة — أضفها من الإعدادات</span>';
+    const sync = () => { const cur = inp.value.split(/[،,|]\s*/).map(x => x.trim()).filter(Boolean); $$('[data-pt]', host).forEach(b => { const on = cur.includes(this.list(k)[+b.dataset.pt]); b.style.background = on ? 'rgba(245,158,11,.28)' : ''; b.style.borderColor = on ? '#fbbf24' : ''; b.style.color = on ? '#fde68a' : ''; }); };
+    $$('[data-pt]', host).forEach(b => b.onclick = () => {
+      const t = this.list(k)[+b.dataset.pt]; let cur = inp.value.split(/[،,|]\s*/).map(x => x.trim()).filter(Boolean);
+      cur = cur.includes(t) ? cur.filter(x => x !== t) : cur.concat(t); inp.value = cur.join('، '); sync();
+    });
+    inp.addEventListener('input', sync); sync();
+  }
+};
+
 const Cfg = {
   // ملاحظة تحت «طابعة الفواتير»: توضح أي طابعة ستُستعمل وتحذّر إن بدت طابعة A4
   prnNote() {
@@ -3212,10 +3249,13 @@ const Printer = {
     if (!sh) return;
     const s = sh.summary || Shift.summary(sh);
     const r = (k, v) => `<div class="row"><span>${k}</span><b>${v}</b></div>`;
-    const body = `${this.header()}<div class="hr"></div><div class="c b big">تقرير إغلاق وردية (Z)</div><div class="c">وردية رقم ${sh.no}</div><div class="hr"></div>
+    const body = `${this.header()}<div class="hr"></div><div class="c b big">تقرير إغلاق وردية</div><div class="c">وردية رقم ${sh.no}</div><div class="hr"></div>
       ${r('الكاشير:', esc(sh.userName))}${r('الفتح:', fmtDT(sh.openAt))}${r('الإغلاق:', sh.closeAt ? fmtDT(sh.closeAt) : 'مفتوحة')}
       <div class="hr"></div>${r('عدد الفواتير:', s.count)}${r('الملغاة:', s.voids)}${r('إجمالي المبيعات:', money(s.sales))}${r('الخصومات:', money(s.discount))}
       <div class="hr"></div>${r('مبيعات نقدية:', money(s.cash))}${r('مبيعات بطاقة:', money(s.card))}${s.credit ? r('مبيعات آجلة (ديون):', money(s.credit)) : ''}${s.debtCash ? r('تحصيل ديون نقداً:', money(s.debtCash)) : ''}${s.debtCard ? r('تحصيل ديون بطاقة:', money(s.debtCard)) : ''}${r('رصيد افتتاحي:', money(sh.openCash))}${r('المصروفات:', money(s.exp))}${s.drv ? r('رسوم توصيل لعامل التوصيل:', money(s.drv)) : ''}
+      ${(() => { const its = Shift.items(sh); return its.length ? `<div class="hr"></div><div class="c b">الأصناف المباعة</div>
+        <table><tbody>${its.map(x => `<tr><td class="n">${esc(x.name)}</td><td style="text-align:left"><b>× ${x.qty}</b></td></tr>`).join('')}</tbody></table>
+        <div class="row"><span>إجمالي القطع:</span><b>${its.reduce((a, x) => a + x.qty, 0)}</b></div>` : ''; })()}
       <div class="hr2"></div>${r('النقد المتوقع:', money(sh.expected != null ? sh.expected : s.expected))}
       ${sh.closeCash != null ? r('النقد الفعلي:', money(sh.closeCash)) + r('الفرق:', money(sh.diff) + (sh.diff < 0 ? ' عجز' : sh.diff > 0 ? ' زيادة' : '')) : ''}
       ${sh.note ? `<div class="hr"></div><div>ملاحظات: ${esc(sh.note)}</div>` : ''}
