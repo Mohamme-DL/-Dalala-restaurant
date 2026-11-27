@@ -10,6 +10,8 @@ const PRODUCT = lic.PRODUCT;
 
 app.setAppUserModelId('ly.dalala.' + PRODUCT.id);
 if (!app.requestSingleInstanceLock()) app.quit();
+// أرقام لاتينية (0-9) في كل مكان حتى على ويندوز بلغة عربية/مصرية: واجهة Chromium بالإنجليزية الأمريكية (منتقي التاريخ وحقول الأرقام)
+app.commandLine.appendSwitch('lang', 'en-US');
 Menu.setApplicationMenu(null);
 // old graphics drivers (common on Windows 7 POS machines): Chromium falls back to software drawing by itself;
 // after a GPU crash the next start also runs without GPU acceleration (no relaunch, so nothing is interrupted)

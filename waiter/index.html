@@ -105,6 +105,7 @@ input:focus,textarea:focus{border-color:var(--pri);box-shadow:0 0 0 3px #38bdf83
 @media(min-width:700px) and (max-width:999px){.cart{width:330px;max-width:40%}.prods{grid-template-columns:repeat(auto-fill,minmax(128px,1fr))}.prod{min-height:112px}}
 .sw{width:44px;height:44px;border-radius:50%;border:3px solid transparent;box-shadow:0 0 0 1px var(--line)}.sw.on{border-color:var(--tx)}.icb{min-height:44px;min-width:44px;padding:8px 12px;font-size:1.15em}
 </style>
+<script>/* أرقام لاتينية: حقول الأرقام والتواريخ والوقت بلغة en-US حتى لا تظهر بالأرقام العربية الهندية */(function(){var Q='input[type=number],input[type=date],input[type=time],input[type=month],input[type=datetime-local]';function fix(r){try{(r.querySelectorAll?r.querySelectorAll(Q):[]).forEach(function(e){if(e.lang!=='en-US')e.lang='en-US'});if(r.matches&&r.matches(Q)&&r.lang!=='en-US')r.lang='en-US'}catch(e){}}function go(){fix(document);new MutationObserver(function(m){m.forEach(function(x){x.addedNodes.forEach(function(n){if(n.nodeType===1)fix(n)})})}).observe(document.documentElement,{childList:true,subtree:true})}if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',go);else go()})();</script>
 </head>
 <body>
 <div id="app"></div>
