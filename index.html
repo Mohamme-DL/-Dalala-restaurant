@@ -1036,6 +1036,8 @@ const POS = {
     this.renderStrip();
 
     const box = $('#orderItems');
+    const keepTop = box.scrollTop, keepKey = (o.id || 'new') + ':' + o.items.length, grew = this._scrKey && this._scrKey.split(':')[0] === keepKey.split(':')[0] ? o.items.length > +this._scrKey.split(':')[1] : true;
+    this._scrKey = keepKey;
     if (!o.items.length) {
       box.innerHTML = `<div class="h-full flex flex-col items-center justify-center text-slate-500 gap-2 py-10">
         <i class="fa-solid fa-cart-flatbed text-5xl text-slate-700"></i><p class="text-sm">الطلب فارغ</p>
@@ -1057,7 +1059,8 @@ const POS = {
           </div>
           <button onclick="POS.remove(${idx})" class="text-slate-500 hover:text-rose-400 p-1"><i class="fa-solid fa-xmark"></i></button>
         </div>`).join('');
-      box.scrollTop = box.scrollHeight;
+      // الانتقال لآخر صنف فقط عند إضافة صنف جديد؛ غير ذلك يبقى موضع التمرير كما هو (لا نقفز عند + أو لوحة الأرقام)
+      box.scrollTop = grew ? box.scrollHeight : keepTop;
     }
 
     const line = (k, v, cls = 'text-slate-200') => `<div class="flex justify-between text-slate-400"><span>${k}</span><span class="num font-semibold ${cls}">${v}</span></div>`;
