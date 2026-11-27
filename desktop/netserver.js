@@ -18,12 +18,17 @@ const NUMBERED = { number: true, code: true };
 const AUTO_CODE = /^([A-Za-z]+-)(\d+)$/;
 const LOG_MAX = 5000;
 
-function createServer({ port, key, dir, onEvent = () => {}, rules = {} }) {
-  const file = path.join(dir, 'shared-db.json');
+function createServer({ port, key, dir, onEvent = () => {}, rules = {}, webRoot = '' }) {
+  const legacy = path.join(dir, 'shared-db.json'); // databases written by versions before the SQLite engine
+  const file = path.join(dir, 'dalala.db');
   const backups = path.join(dir, 'backups');
-  const jfile = path.join(dir, 'journal.ndjson'); // every confirmed change is written here first (durability)
-  let state = { version: 0, data: null };
-  try { state = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { /* new database */ }
+  const jfile = path.join(dir, 'journal.ndjson');
+  const store = require('./dbstore').open(file);
+  let state = store.load();
+  let migrated = 0;
+  if (!state.data) { // first start with SQLite: bring the old JSON database (and its unsaved journal) along
+    try { state = JSON.parse(fs.readFileSync(legacy, 'utf8')); migrated = 1; } catch (e) { state = { version: 0, data: null }; }
+  }
   const log = []; // { v, clientId, ops }
   /* apply already-processed changes (from the journal) to the state */
   function applyChanges(changes) {
@@ -36,7 +41,7 @@ function createServer({ port, key, dir, onEvent = () => {}, rules = {} }) {
     }
   }
   // replay changes that were confirmed after the last snapshot (power cut / crash)
-  try {
+  if (migrated) try {
     const lines = fs.readFileSync(jfile, 'utf8').split('\n').filter(Boolean); let n = 0;
     for (const line of lines) { let e; try { e = JSON.parse(line); } catch (x) { break; } if (e.v > state.version) { applyChanges(e.ops); state.version = e.v; log.push({ v: e.v, clientId: e.c || '', ops: e.ops }); n++; } }
     if (n) onEvent('recovered', n);
@@ -46,26 +51,25 @@ function createServer({ port, key, dir, onEvent = () => {}, rules = {} }) {
   let saveTimer = null;
   const mem = {}; // scratch memory for product rules (e.g. renumbered orders)
 
-  let jfd = null;
-  function journal(entry) { // append + flush to disk before the change is confirmed to the computer that sent it
-    try { fs.mkdirSync(dir, { recursive: true }); if (jfd === null) jfd = fs.openSync(jfile, 'a'); fs.writeSync(jfd, JSON.stringify(entry) + '\n'); fs.fdatasyncSync(jfd); }
-    catch (e) { onEvent('error', 'journal: ' + e.message); }
+  function journal(entry) { // one transaction on disk before the change is confirmed to the computer that sent it
+    try { store.commit(entry.ops, entry.v); }
+    catch (e) { onEvent('error', 'database: ' + e.message); }
   }
-  function snapshotNow() {
-    clearTimeout(saveTimer); saveTimer = null;
-    fs.mkdirSync(dir, { recursive: true });
-    const tmp = file + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(state)); fs.renameSync(tmp, file);
-    try { if (jfd !== null) { fs.closeSync(jfd); jfd = null; } fs.writeFileSync(jfile, ''); } catch (e) { /* ignore */ } // the snapshot now holds everything
+  function snapshotNow() { clearTimeout(saveTimer); saveTimer = null; store.checkpoint(); }
+  if (migrated) { // write the old database into SQLite, then keep the old files as a safety copy
+    try {
+      store.replaceAll(state.data || {}, state.version || 0);
+      for (const f of [legacy, jfile]) if (fs.existsSync(f)) fs.renameSync(f, f + '.migrated');
+      onEvent('migrated', 1);
+    } catch (e) { onEvent('error', 'migration: ' + e.message); }
   }
-  if (log.length) { try { snapshotNow(); } catch (e) { onEvent('error', e.message); } }
-  function persist() {
+  function persist() { // a dated backup copy of the database, once a day (the last 30 are kept)
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
       try {
-        snapshotNow();
-        const day = new Date().toISOString().slice(0, 10); const bk = path.join(backups, `shared-${day}.json`);
-        if (!fs.existsSync(bk)) { fs.mkdirSync(backups, { recursive: true }); fs.copyFileSync(file, bk);
-          fs.readdirSync(backups).filter(f => f.startsWith('shared-')).sort().slice(0, -30).forEach(f => fs.rmSync(path.join(backups, f), { force: true })); }
+        const day = new Date().toISOString().slice(0, 10); const bk = path.join(backups, `shared-${day}.db`);
+        if (!fs.existsSync(bk)) { store.backupTo(bk);
+          fs.readdirSync(backups).filter(f => /^shared-.*\.(db|json)$/.test(f)).sort().slice(0, -30).forEach(f => fs.rmSync(path.join(backups, f), { force: true })); }
       } catch (e) { onEvent('error', e.message); }
     }, 250);
   }
@@ -126,10 +130,25 @@ function createServer({ port, key, dir, onEvent = () => {}, rules = {} }) {
   }
   const since = v => (log.length && log[0].v <= v + 1) || v === state.version ? { version: state.version, entries: log.filter(e => e.v > v) } : null;
 
+  const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json', '.webmanifest': 'application/manifest+json' };
+  function serveWaiter(req, res, p) {
+    const txt = (code, t, extra) => { res.writeHead(code, { 'content-type': 'text/plain; charset=utf-8', ...(extra || {}) }); res.end(t); };
+    if (p === '/w') return txt(302, '', { location: '/w/' });
+    try {
+      if (!webRoot || !fs.existsSync(webRoot)) return txt(404, 'waiter app not installed');
+      const full = path.resolve(webRoot); let rel = decodeURIComponent(p.slice(3)); if (!rel) rel = 'index.html';
+      const f = path.resolve(full, rel);
+      if (!f.toLowerCase().startsWith((full + path.sep).toLowerCase()) || !fs.existsSync(f) || !fs.statSync(f).isFile()) return txt(404, 'not found');
+      res.writeHead(200, { 'content-type': MIME[path.extname(f).toLowerCase()] || 'application/octet-stream', 'cache-control': 'no-cache' });
+      return res.end(req.method === 'HEAD' ? undefined : fs.readFileSync(f));
+    } catch (e) { return txt(404, 'not found'); }
+  }
   const server = http.createServer((req, res) => {
     const send = (code, obj) => { res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type, x-dalala-key, x-dalala-client', 'access-control-allow-methods': 'GET, POST, OPTIONS', 'cache-control': 'no-store' }); res.end(JSON.stringify(obj)); };
     if (req.method === 'OPTIONS') return send(204, {});
     const url = new URL(req.url, 'http://x');
+    // waiter web app (phones / tablets) served at /w/ without the key; the data API below still needs it
+    if ((req.method === 'GET' || req.method === 'HEAD') && (url.pathname === '/w' || url.pathname.startsWith('/w/'))) return serveWaiter(req, res, url.pathname);
     const okKey = (() => { const k = String(req.headers['x-dalala-key'] || ''); return k.length === key.length && crypto.timingSafeEqual(Buffer.from(k), Buffer.from(key)); })();
     if (url.pathname === '/api/ping') return send(200, { ok: true, app: 'dalala', version: state.version, keyOk: okKey });
     if (!okKey) return send(401, { error: 'key' });
@@ -151,7 +170,7 @@ function createServer({ port, key, dir, onEvent = () => {}, rules = {} }) {
         let msg; try { msg = JSON.parse(body || '{}'); } catch (e) { return send(400, { error: 'json' }); }
         if (url.pathname === '/api/init') {
           if (state.data && Object.keys(state.data).length && !msg.force) return send(409, { error: 'exists', version: state.version });
-          state.data = msg.data || {}; state.version++; log.length = 0; try { snapshotNow(); } catch (e) { onEvent('error', e.message); } for (const w of waiters) w(); waiters.clear();
+          state.data = msg.data || {}; state.version++; log.length = 0; try { store.replaceAll(state.data, state.version); } catch (e) { onEvent('error', e.message); } for (const w of waiters) w(); waiters.clear();
           onEvent('init', cid); return send(200, { version: state.version });
         }
         const r = apply(msg.ops, cid); return send(200, r);
@@ -162,7 +181,7 @@ function createServer({ port, key, dir, onEvent = () => {}, rules = {} }) {
   });
   return {
     listen: () => new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '0.0.0.0', () => resolve()); }),
-    close: () => new Promise(r => { try { if (saveTimer || jfd !== null) snapshotNow(); } catch (e) { onEvent('error', e.message); } for (const w of waiters) w(); server.close(() => r()); }),
+    close: () => new Promise(r => { for (const w of waiters) w(); server.close(() => { try { store.close(); } catch (e) { /* ignore */ } r(); }); }),
     flush: () => { try { snapshotNow(); } catch (e) { onEvent('error', e.message); } },
     status: () => ({ version: state.version, hasData: !!state.data, clients: [...clients.entries()].map(([id, c]) => ({ id, ...c, online: Date.now() - c.lastSeen < 60000 })), file }),
   };

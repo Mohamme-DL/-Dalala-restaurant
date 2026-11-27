@@ -48,8 +48,8 @@ LangString DesktopLnk ${LANG_ARABIC}  "${APPNAME_AR}"
 LangString DesktopLnk ${LANG_ENGLISH} "${APPNAME}"
 LangString UninstLnk ${LANG_ARABIC}  "إزالة ${APPNAME_AR}"
 LangString UninstLnk ${LANG_ENGLISH} "Uninstall ${APPNAME}"
-LangString KeepData ${LANG_ARABIC}  "ملاحظة: بيانات المدرسة محفوظة في مجلد المستخدم ولن تُحذف. يمكن حذفها يدوياً من: $APPDATA\${APPNAME}"
-LangString KeepData ${LANG_ENGLISH} "Note: school data is kept in your user folder and is not deleted. You can remove it manually from: $APPDATA\${APPNAME}"
+LangString KeepData ${LANG_ARABIC}  "ملاحظة: بيانات المطعم محفوظة في مجلد المستخدم ولن تُحذف. يمكن حذفها يدوياً من: $APPDATA\${APPNAME}"
+LangString KeepData ${LANG_ENGLISH} "Note: restaurant data is kept in your user folder and is not deleted. You can remove it manually from: $APPDATA\${APPNAME}"
 
 Function .onInit
   !insertmacro MUI_LANGDLL_DISPLAY

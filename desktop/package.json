@@ -10,9 +10,10 @@
     "sync": "node build-app.js --dev",
     "start": "npm run sync && electron .",
     "build-app": "node build-app.js",
-    "pack": "node build-app.js && electron-builder --win dir --x64 && node set-exe-meta.mjs",
+    "pack": "npm run native && node build-app.js && electron-builder --win dir --x64 && node set-exe-meta.mjs",
     "dist": "npm run pack && node make-installer.js",
-    "dist:builder": "node build-app.js && electron-builder --win nsis --x64"
+    "dist:builder": "npm run native && node build-app.js && electron-builder --win nsis --x64",
+    "native": "cd node_modules/better-sqlite3 && npx --yes prebuild-install -r electron -t 33.2.1 --platform win32 --arch x64 --force"
   },
   "devDependencies": {
     "@electron/fuses": "^1.8.0",
@@ -31,7 +32,8 @@
     },
     "files": [
       "app/**/*",
-      "package.json"
+      "package.json",
+      "!**/node_modules/better-sqlite3/{deps,src}/**"
     ],
     "win": {
       "target": [
@@ -67,6 +69,13 @@
     "extraMetadata": {
       "main": "app/main.js"
     },
-    "afterPack": "./fuses.js"
+    "afterPack": "./fuses.js",
+    "asarUnpack": [
+      "**/node_modules/better-sqlite3/**"
+    ],
+    "npmRebuild": false
+  },
+  "dependencies": {
+    "better-sqlite3": "11.10.0"
   }
 }

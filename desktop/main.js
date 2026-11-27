@@ -10,9 +10,20 @@ const PRODUCT = lic.PRODUCT;
 
 app.setAppUserModelId('ly.dalala.' + PRODUCT.id);
 if (!app.requestSingleInstanceLock()) app.quit();
+// أرقام لاتينية (0-9) في كل مكان حتى على ويندوز بلغة عربية/مصرية: واجهة Chromium بالإنجليزية الأمريكية (منتقي التاريخ وحقول الأرقام)
+app.commandLine.appendSwitch('lang', 'en-US');
 Menu.setApplicationMenu(null);
+// old graphics drivers (common on Windows 7 POS machines): Chromium falls back to software drawing by itself;
+// after a GPU crash the next start also runs without GPU acceleration (no relaunch, so nothing is interrupted)
+const GPU_OFF = () => path.join(app.getPath('userData'), 'gpu-off');
+try { if (fs.existsSync(GPU_OFF())) app.disableHardwareAcceleration(); } catch (e) { /* ignore */ }
+app.on('child-process-gone', (_e, d) => {
+  if (d && d.type === 'GPU' && d.reason !== 'clean-exit' && !fs.existsSync(GPU_OFF())) {
+    try { fs.mkdirSync(app.getPath('userData'), { recursive: true }); fs.writeFileSync(GPU_OFF(), String(d.reason || '')); } catch (e) { /* ignore */ }
+  }
+});
 
-let win = null, actWin = null, state = { ok: false, reason: 'none' }, lastSaved = '';
+let win = null, actWin = null, state = { ok: false, reason: 'none' }, lastSaved = '', demoInfo = null;
 
 /* ---------- several computers, one database (LAN) ----------
    network.json: { mode: 'local' | 'host' | 'client', port, key, host }  */
@@ -20,12 +31,41 @@ const NET_DEFAULT = { mode: 'local', port: 47630, key: '', host: '' };
 const netFile = () => path.join(app.getPath('userData'), 'network.json');
 function netConfig() { try { return { ...NET_DEFAULT, ...JSON.parse(fs.readFileSync(netFile(), 'utf8')) }; } catch (e) { return { ...NET_DEFAULT }; } }
 let NET = null, server = null, serverError = '';
-function lanAddresses() { return Object.values(os.networkInterfaces()).flat().filter(n => n && n.family === 'IPv4' && !n.internal).map(n => n.address); }
+// real network addresses first; virtual adapters (VMware / Hyper-V / VirtualBox / WSL / Bluetooth) last
+function lanAddresses() {
+  const real = [], virt = [];
+  for (const [name, list] of Object.entries(os.networkInterfaces())) for (const n of list || []) {
+    if (!n || (n.family !== 'IPv4' && n.family !== 4) || n.internal || /^169\.254\./.test(n.address)) continue;
+    (/VMware|VirtualBox|Hyper-V|vEthernet|Virtual|TAP|WSL|Bluetooth|Npcap|Loopback/i.test(name) ? virt : real).push(n.address);
+  }
+  return [...real, ...virt];
+}
+// Windows firewall rule for the shared-database port.
+// The installer already creates "Dalala Restaurant <port>" for the default port; if neither rule exists we ask for
+// admin rights (UAC) ONCE per port — a "no" answer is remembered so the prompt does not return on every start.
+// Pass force=true (when the user changes the network settings) to ask again.
+function ensureFirewall(port, force) {
+  if (process.platform !== 'win32') return;
+  const { execFile } = require('child_process');
+  const netsh = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'netsh.exe');
+  const names = ['Dalala Restaurant LAN ' + port, 'Dalala Restaurant ' + port];
+  const has = name => new Promise(res => execFile(netsh, ['advfirewall', 'firewall', 'show', 'rule', 'name=' + name], { windowsHide: true }, err => res(!err)));
+  const mark = path.join(app.getPath('userData'), 'fw-asked-' + port);
+  Promise.all(names.map(has)).then(r => {
+    if (r.some(Boolean)) return; // a rule already exists
+    if (!force && fs.existsSync(mark)) return; // already asked once on this device
+    try { fs.writeFileSync(mark, new Date().toISOString()); } catch (e) { /* ignore */ }
+    const rule = names[0];
+    const args = `'advfirewall','firewall','add','rule','name=${rule}','dir=in','action=allow','protocol=TCP','localport=${port}','profile=any'`;
+    execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-Command', `Start-Process -FilePath '${netsh}' -ArgumentList ${args} -Verb RunAs -WindowStyle Hidden -Wait`], { windowsHide: true }, () => {});
+  });
+}
 async function startServer() {
   if (NET.mode !== 'host') return;
   if (!NET.key) { NET.key = net.newKey(); fs.writeFileSync(netFile(), JSON.stringify(NET, null, 1)); }
   let rules = {}; try { rules = require('./netrules'); } catch (e) { /* no product rules */ }
-  server = net.createServer({ rules, port: NET.port, key: NET.key, dir: path.join(app.getPath('userData'), 'shared'), onEvent: (k, m) => { if (k === 'error') serverError = m; } });
+  ensureFirewall(NET.port);
+  server = net.createServer({ rules, port: NET.port, key: NET.key, dir: path.join(app.getPath('userData'), 'shared'), webRoot: path.join(__dirname, 'web', 'waiter'), onEvent: (k, m) => { if (k === 'error') serverError = m; } });
   try { await server.listen(); } catch (e) { serverError = e.message; dialog.showErrorBox(PRODUCT.nameAr, `تعذر تشغيل خادم الشبكة على المنفذ ${NET.port}.\n${e.message}`); server = null; }
 }
 function ping(host, port, key) {
@@ -44,6 +84,7 @@ ipcMain.handle('net:test', (_e, { host, port, key }) => ping(String(host || '').
 ipcMain.handle('net:set', (_e, cfg) => {
   const next = { ...NET_DEFAULT, ...NET, mode: ['local', 'host', 'client'].includes(cfg.mode) ? cfg.mode : 'local', port: Math.min(65000, Math.max(1024, +cfg.port || NET_DEFAULT.port)), host: String(cfg.host || '').trim(), key: cfg.mode === 'client' ? String(cfg.key || '').trim().toUpperCase() : (NET.key || '') };
   fs.writeFileSync(netFile(), JSON.stringify(next, null, 1));
+  if (next.mode === 'host') ensureFirewall(next.port, true);
   setTimeout(() => { app.relaunch(); app.exit(0); }, 300);
   return true;
 });
@@ -93,19 +134,27 @@ function createActivation() {
   actWin.on('closed', () => { actWin = null; });
 }
 
-ipcMain.handle('lic:info', () => ({ product: PRODUCT, deviceId: lic.deviceId(), reason: state.reason, payload: state.payload || null }));
+ipcMain.handle('lic:info', () => ({ product: PRODUCT, deviceId: lic.deviceId(), reason: state.reason, payload: state.payload || null, demo: demoInfo }));
+ipcMain.handle('lic:openActivation', e => { if (!fromMain(e) || !demoInfo) return false; if (actWin) { actWin.focus(); return true; } createActivation(); return true; });
 ipcMain.handle('lic:activate', (_e, key) => {
   const r = lic.activate(app.getPath('userData'), key);
-  if (r.ok) { state = r; setTimeout(() => { createMain(); if (actWin) actWin.close(); }, 900); }
+  if (r.ok && demoInfo) { setTimeout(() => { app.relaunch(); app.exit(0); }, 900); } // كانت تجريبية: إعادة تشغيل كاملة بالنسخة المفعّلة
+  else if (r.ok) { state = r; setTimeout(() => { createMain(); if (actWin) actWin.close(); }, 900); }
   return { ok: r.ok, reason: r.reason, payload: r.payload || null };
 });
 ipcMain.handle('lic:copy', (_e, text) => { clipboard.writeText(String(text || '')); return true; });
 ipcMain.handle('lic:open', (_e, url) => { if (/^https:\/\/wa\.me\/\d+/.test(String(url))) shell.openExternal(url); return true; });
 ipcMain.on('lic:status', e => {
-  e.returnValue = state.ok ? { licensed: true, customer: state.payload.c || '', expiry: state.payload.e || '', issued: state.payload.i || '', deviceId: lic.deviceId(), product: PRODUCT.id } : { licensed: false };
+  e.returnValue = state.ok ? { demo: demoInfo, licensed: true, customer: state.payload.c || '', expiry: state.payload.e || '', issued: state.payload.i || '', deviceId: lic.deviceId(), product: PRODUCT.id } : { licensed: false };
 });
 
 /* printing: list printers, print the current page silently on a chosen printer */
+/* single-computer ("local") mode: the data lives in a SQLite database in the user's data folder */
+let localStore = null, localVersion = 0;
+const lstore = () => { if (!localStore) { localStore = require('./dbstore').open(path.join(app.getPath('userData'), 'local', 'dalala.db')); localVersion = localStore.load().version || 0; } return localStore; };
+ipcMain.on('store:load', e => { if (!win || e.sender !== win.webContents) { e.returnValue = null; return; } try { e.returnValue = lstore().load(); } catch (err) { e.returnValue = { error: String(err.message || err) }; } });
+ipcMain.on('store:commit', (e, changes) => { if (!win || e.sender !== win.webContents) { e.returnValue = false; return; } try { lstore().commit(Array.isArray(changes) ? changes : [], ++localVersion); e.returnValue = true; } catch (err) { e.returnValue = String(err.message || err); } });
+ipcMain.on('store:replace', (e, data) => { if (!win || e.sender !== win.webContents) { e.returnValue = false; return; } try { lstore().replaceAll(data || {}, ++localVersion); e.returnValue = true; } catch (err) { e.returnValue = String(err.message || err); } });
 const fromMain = e => win && e.sender === win.webContents;
 ipcMain.handle('print:list', async e => { if (!fromMain(e)) return []; try { return (await e.sender.getPrintersAsync()).map(p => ({ name: p.name, displayName: p.displayName, isDefault: !!p.isDefault })); } catch (err) { return []; } });
 ipcMain.handle('print:run', (e, o = {}) => new Promise(resolve => {
@@ -114,6 +163,27 @@ ipcMain.handle('print:run', (e, o = {}) => new Promise(resolve => {
   const ps = o.pageSize && typeof o.pageSize === 'object' && +o.pageSize.width > 10000 && +o.pageSize.height > 10000 ? { width: Math.min(+o.pageSize.width, 120000), height: Math.min(+o.pageSize.height, 5080000) } : (o.pageSize === 'A4' ? 'A4' : undefined);
   e.sender.print({ silent: !!o.silent, deviceName: String(o.deviceName || ''), printBackground: true, margins: { marginType: o.receipt ? 'none' : 'default' }, ...(ps ? { pageSize: ps } : {}) }, (ok, error) => resolve({ ok, error: ok ? '' : String(error || '') }));
 }));
+/* silent printing of an HTML document (receipts / reports) on a chosen printer, via a hidden window */
+ipcMain.handle('print:html', async (e, html, o = {}) => {
+  if (!fromMain(e)) return { ok: false, error: 'denied' };
+  let w = null, tmp = '';
+  try {
+    w = new BrowserWindow({ show: false, width: 900, height: 1200, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, javascript: true, devTools: false } });
+    tmp = path.join(os.tmpdir(), `dalala-print-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.html`);
+    fs.writeFileSync(tmp, String(html || ''), 'utf8');
+    await w.loadFile(tmp);
+    await w.webContents.executeJavaScript('document.fonts && document.fonts.ready ? document.fonts.ready.then(() => 1) : 1').catch(() => 1);
+    const paper = +o.paper || 80, copies = Math.max(1, Math.min(5, parseInt(o.copies) || 1));
+    let pageSize = 'A4';
+    if (paper !== 210) {
+      const h = await w.webContents.executeJavaScript('Math.ceil(document.documentElement.scrollHeight)');
+      pageSize = { width: paper * 1000, height: Math.min(5080000, Math.max(60000, Math.round(h * 264.58) + 6000)) };
+    }
+    const r = await new Promise(resolve => w.webContents.print({ silent: !!o.silent, deviceName: String(o.deviceName || ''), printBackground: true, copies, margins: { marginType: 'none' }, pageSize }, (ok, err) => resolve({ ok, error: ok ? '' : String(err || '') })));
+    return r;
+  } catch (err) { return { ok: false, error: String(err && err.message || err) }; }
+  finally { try { if (w) w.destroy(); } catch (x) { /* ignore */ } try { if (tmp) fs.rmSync(tmp, { force: true }); } catch (x) { /* ignore */ } }
+});
 /* automatic backups: <userData>/backups/<name>.json, daily ones kept for 30 days */
 const BK_DIR = () => path.join(app.getPath('userData'), 'backups');
 const bkName = n => String(n || '').replace(/[^A-Za-z0-9_.-]/g, '').slice(0, 80);
@@ -137,7 +207,13 @@ app.on('second-instance', () => { const w = win || actWin; if (w) { if (w.isMini
 app.whenReady().then(async () => {
   NET = netConfig(); await startServer();
   state = lic.check(app.getPath('userData'));
+  demoInfo = null;
+  if (!state.ok && PRODUCT.demo > 0) { // نسخة تجريبية: تعمل بلا تفعيل طوال المدة
+    const t = require('./trial').check(app.getPath('userData'), PRODUCT.id, lic.deviceId(), PRODUCT.demo);
+    if (t.ok) { demoInfo = { daysLeft: t.daysLeft, until: t.until, days: PRODUCT.demo }; state = { ok: true, demo: true, payload: { c: 'نسخة تجريبية', e: '', i: '' } }; }
+    else state = { ok: false, reason: t.reason };
+  }
   if (state.ok) createMain(); else createActivation();
 });
-app.on('before-quit', () => { if (server) server.flush(); }); // write the shared database to disk before closing
+app.on('before-quit', () => { if (server) server.flush(); if (localStore) { try { localStore.backupTo(path.join(app.getPath('userData'), 'local', 'backups', 'local-' + new Date().toISOString().slice(0, 10) + '.db')); const bd = path.join(app.getPath('userData'), 'local', 'backups'); fs.readdirSync(bd).filter(f => /^local-.*\.db$/.test(f)).sort().slice(0, -30).forEach(f => fs.rmSync(path.join(bd, f), { force: true })); } catch (e) { /* ignore */ } try { localStore.close(); } catch (e) { /* ignore */ } } }); // write the shared database to disk before closing
 app.on('window-all-closed', () => { if (server) server.close(); app.quit(); });

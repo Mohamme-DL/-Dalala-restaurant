@@ -1,6 +1,7 @@
 // Exposes the (read-only) license status to the web app. The web app refuses to start without it.
 const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('dalalaDesktop', Object.freeze(ipcRenderer.sendSync('lic:status')));
+contextBridge.exposeInMainWorld('dalalaLicense', Object.freeze({ openActivation: () => ipcRenderer.invoke('lic:openActivation') }));
 // Several computers, one database: network mode for this computer (local / host / client)
 contextBridge.exposeInMainWorld('dalalaNet', Object.freeze({
   config: Object.freeze(ipcRenderer.sendSync('net:config')),
@@ -9,10 +10,11 @@ contextBridge.exposeInMainWorld('dalalaNet', Object.freeze({
   set: cfg => ipcRenderer.invoke('net:set', cfg),
 }));
 // Printing on a chosen printer (receipts, A4, labels) and automatic backup files
-contextBridge.exposeInMainWorld('dalalaPrint', Object.freeze({ list: () => ipcRenderer.invoke('print:list'), run: o => ipcRenderer.invoke('print:run', o) }));
+contextBridge.exposeInMainWorld('dalalaPrint', Object.freeze({ list: () => ipcRenderer.invoke('print:list'), run: o => ipcRenderer.invoke('print:run', o), printers: () => ipcRenderer.invoke('print:list'), print: (html, o) => ipcRenderer.invoke('print:html', html, o) }));
 contextBridge.exposeInMainWorld('dalalaBackup', Object.freeze({
   save: (name, json) => ipcRenderer.invoke('bk:save', name, json), list: () => ipcRenderer.invoke('bk:list'),
   read: name => ipcRenderer.invoke('bk:read', name), open: () => ipcRenderer.invoke('bk:open'),
 }));
 // after a file is saved: the app can offer to open it
 contextBridge.exposeInMainWorld('dalalaFiles', Object.freeze({ onSaved: cb => ipcRenderer.on('file:saved', (_e, p) => cb(String(p))), openLast: () => ipcRenderer.invoke('file:openLast') }));
+contextBridge.exposeInMainWorld('dalalaStore', Object.freeze({ load: () => ipcRenderer.sendSync('store:load'), commit: c => ipcRenderer.sendSync('store:commit', c), replace: d => ipcRenderer.sendSync('store:replace', d) }));
